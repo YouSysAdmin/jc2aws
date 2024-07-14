@@ -71,7 +71,7 @@ jc2aws --email my-user@example.com \
        --role-arn "arn:aws:iam::0000000:role/jumpcloud-admin" \
        --principal-arn "arn:aws:iam::0000000:saml-provider/jumpcloud" \
        --region ca-central-1 \
-       --mfa "123456"
+       --mfa "123456" # or --mfa "YourMFASecret" for automate generate MFA token
 ```
 
 ## Config file
