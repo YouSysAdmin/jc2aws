@@ -177,6 +177,7 @@ func (app *App) cliInit() {
 				Name:        "aws-cli-profile-name",
 				Usage:       "AWS profile name used for store credentials",
 				EnvVars:     []string{"J2A_AWS_CLI_PROFILE_NAME"},
+				Value:       "default",
 				Destination: &app.AwsCliProfile,
 			},
 		},
