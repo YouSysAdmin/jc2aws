@@ -1,7 +1,7 @@
 # jc2aws
 CLI tool for getting temporary AWS credentials via Jumpcloud SSO
 
-> Hello, I am making this project public because due to Russia’s war of aggression against Ukraine, I am not sure about the future.
+> Hello, I am making this project public because due to Russia’s war aggression against Ukraine, I am not sure about the future.
 >
 > I apologize for long response time to possible issues and PR or no response at all.
 
