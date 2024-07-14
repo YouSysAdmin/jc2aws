@@ -83,5 +83,18 @@ func (c *Config) FindAccountByName(name string) (account Account, err error) {
 	if idx < 0 {
 		return account, fmt.Errorf("the account %s not found", name)
 	}
-	return c.Accounts[idx], nil
+
+	account = c.Accounts[idx]
+
+	if account.Email == "" {
+		account.Email = c.DefaultEmail
+	}
+	if account.Password == "" {
+		account.Password = c.DefaultPassword
+	}
+	if account.MFASecret == "" {
+		account.MFASecret = c.DefaultMFATokenSecret
+	}
+
+	return account, nil
 }
