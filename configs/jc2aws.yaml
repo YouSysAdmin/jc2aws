@@ -1,0 +1,60 @@
+# $HOME/.jc2aws.yaml
+---
+# default login for all accounts if an account is not set separately
+default_email: "my-user@example.com"
+
+# default password for all accounts if an account is not set separately
+default_password: "MyVeryCoolPassword"
+
+# default MFA secret for all accounts if an account is not set separately
+default_mfa_token_secret: "MyMFASecret"
+
+# AWS accounts configs
+accounts:
+  # Name
+  - name: my-prod
+    # Description
+    description: "Production account"
+    # Jumpcloud user Email
+    Email: "my-user@example.com"
+    # Jumpcloud user Password
+    Password: "MyVeryCoolPassword"
+    # MFA Secret
+    mfa_token_secret: "MyMFASecret"
+    # Principal ARN
+    aws_principal_arn: "arn:aws:iam::0000000000:saml-provider/jumpcloud"
+    # Roles list
+    aws_role_arns:
+      # Name
+      - name: admin
+        # Description
+        description: "AWS Role with full access"
+        # ARN
+        arn: "arn:aws:iam::0000000000:role/jumpcloud-admin"
+      - name: read-only
+        description: "AWS Role with read-only access"
+        arn: "arn:aws:iam::0000000000:role/jumpcloud-readonly"
+    # Regions list
+    aws_regions:
+      - "ca-central-1"
+      - "us-east-1"
+    # Jumpcloud IDP URL
+    jc_idp_url: https://sso.jumpcloud.com/saml2/my-prod
+    # Session Duration
+    session_timeout: 3600
+
+  - name: my-stage
+    description: "Staging account"
+    aws_principal_arn: "arn:aws:iam::0000000000:saml-provider/jumpcloud"
+    aws_role_arns:
+      - name: admin
+        description: "AWS Role with full access"
+        arn: "arn:aws:iam::0000000000:role/jumpcloud-admin"
+      - name: read-only
+        description: "AWS Role with read-only access"
+        arn: "arn:aws:iam::0000000000:role/jumpcloud-readonly"
+    aws_regions:
+      - "ca-central-1"
+      - "us-east-1"
+    jc_idp_url: https://sso.jumpcloud.com/saml2/my-stage
+    session_timeout: 3600
