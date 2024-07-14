@@ -236,6 +236,8 @@ func promptOptions(app *App) (err error) {
 			if err != nil {
 				return err
 			}
+			fromAccountToAppConfig(account, app)
+
 		} else if (!app.Interactive && app.AccountName != "") || (app.Interactive && app.AccountName != "") {
 			// Find account from a pre-configured account list by name in the non-interactive mode
 			// or in the interactive mode with set account-name flag
@@ -243,6 +245,7 @@ func promptOptions(app *App) (err error) {
 			if err != nil {
 				return err
 			}
+			fromAccountToAppConfig(account, app)
 		}
 
 		app.AccountName = account.Name
@@ -405,4 +408,19 @@ func getCredentials(email, password, idpURL, mfa, principalARN, roleARN, region 
 	})
 
 	return cred, err
+}
+
+func fromAccountToAppConfig(account config.Account, app *App) {
+	app.AccountName = account.Name
+	app.Email = account.Email
+	app.Password = account.Password
+	app.IdpURL = account.IdpURL
+	app.MfaToken = account.MFASecret
+	app.PrincipalARN = account.AWSPrincipalArn
+	app.Duration = account.Duration
+	if app.AwsCliProfile == "" && account.AwsCliProfile == "" {
+		app.AwsCliProfile = account.Name
+	} else if app.AwsCliProfile == "" && account.AwsCliProfile != "" {
+		app.AwsCliProfile = account.AwsCliProfile
+	}
 }
