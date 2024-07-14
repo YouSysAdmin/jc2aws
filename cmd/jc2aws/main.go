@@ -248,19 +248,6 @@ func promptOptions(app *App) (err error) {
 			fromAccountToAppConfig(account, app)
 		}
 
-		app.AccountName = account.Name
-		app.Email = account.Email
-		app.Password = account.Password
-		app.IdpURL = account.IdpURL
-		app.MfaToken = account.MFASecret
-		app.PrincipalARN = account.AWSPrincipalArn
-		app.Duration = account.Duration
-		if app.AwsCliProfile == "" && account.AwsCliProfile == "" {
-			app.AwsCliProfile = account.Name
-		} else if app.AwsCliProfile == "" && account.AwsCliProfile != "" {
-			app.AwsCliProfile = account.AwsCliProfile
-		}
-
 		// Select Role from a pre-configured account
 		if len(account.AWSRoleArns) > 0 && app.RoleARN == "" && app.Interactive {
 			app.RoleARN, err = PromptRoleArn(account)
@@ -284,9 +271,9 @@ func promptOptions(app *App) (err error) {
 			if app.Email, err = PromptSimple("Email", "email", "simple"); err != nil {
 				return err
 			}
+		} else {
+			return errors.New(EmailIsRequired)
 		}
-
-		return errors.New(EmailIsRequired)
 
 	} else {
 		if err = validators["email"](app.Email); err != nil {
@@ -299,8 +286,10 @@ func promptOptions(app *App) (err error) {
 			if app.Password, err = PromptSimple("Password", "password", "masked"); err != nil {
 				return err
 			}
+		} else {
+			return errors.New(PasswordIsRequired)
 		}
-		return errors.New(PasswordIsRequired)
+
 	} else {
 		if err = validators["password"](app.Password); err != nil {
 			return err
@@ -312,8 +301,10 @@ func promptOptions(app *App) (err error) {
 			if app.IdpURL, err = PromptSimple("IDP URL", "idp-url", "simple"); err != nil {
 				return err
 			}
+		} else {
+			return errors.New(IdpURLRequred)
 		}
-		return errors.New(IdpURLRequred)
+
 	} else {
 		if err = validators["idp-url"](app.IdpURL); err != nil {
 			return err
@@ -325,8 +316,10 @@ func promptOptions(app *App) (err error) {
 			if app.RoleARN, err = PromptSimple("Role ARN", "role-arn", "simple"); err != nil {
 				return err
 			}
+		} else {
+			return errors.New(AwsRoleArnIsRequired)
 		}
-		return errors.New(AwsRoleArnIsRequired)
+
 	} else {
 		if err = validators["role-arn"](app.RoleARN); err != nil {
 			return err
@@ -338,8 +331,9 @@ func promptOptions(app *App) (err error) {
 			if app.PrincipalARN, err = PromptSimple("Principal ARN", "principal-arn", "simple"); err != nil {
 				return err
 			}
+		} else {
+			return errors.New(AwsPrincipalUrlIsRequired)
 		}
-		return errors.New(AwsPrincipalUrlIsRequired)
 	} else {
 		if err = validators["principal-arn"](app.PrincipalARN); err != nil {
 			return err
@@ -351,11 +345,29 @@ func promptOptions(app *App) (err error) {
 			if app.Region, err = PromptRegion(aws.RegionsList); err != nil {
 				return err
 			}
+		} else {
+			return errors.New(AwsRegionIsRequired)
 		}
-		return errors.New(AwsRegionIsRequired)
+
 	} else {
 		if err = validators["region"](app.Region); err != nil {
 			return err
+		}
+	}
+
+	if app.OutputFormat != "" {
+		if err = validators["output-format"](app.OutputFormat); err != nil {
+			return err
+		}
+	}
+
+	if app.AwsCliProfile == "" && (app.OutputFormat == "cli" || app.OutputFormat == "cli-stdout") {
+		if app.Interactive {
+			if app.AwsCliProfile, err = PromptSimple("AWS Cli profile name", "skip", "simple"); err != nil {
+				return err
+			}
+		} else {
+			return errors.New(AwsCliProfileNameIsRequired)
 		}
 	}
 
@@ -365,15 +377,8 @@ func promptOptions(app *App) (err error) {
 				return err
 			}
 		}
-		return errors.New(MfaRequired)
 	} else {
 		if err = validators["mfa"](app.MfaToken); err != nil {
-			return err
-		}
-	}
-
-	if app.OutputFormat != "" {
-		if err = validators["output-format"](app.OutputFormat); err != nil {
 			return err
 		}
 	}
