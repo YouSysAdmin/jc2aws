@@ -144,3 +144,8 @@ accounts:
 ```shell
 go install github.com/yousysadmin/jc2aws/cmd/jc2aws@latest
 ```
+
+```shell
+# By default install to $HOME/.bin dir
+curl -L https://raw.githubusercontent.com/yousysadmin/jc2aws/master/scripts/install.sh | bash
+```
