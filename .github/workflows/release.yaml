@@ -33,6 +33,8 @@ jobs:
           goversion: "1.22.5"
           binary_name: "jc2aws"
           overwrite: true
+          md5sum: false
+          sha256sum: true
           build_flags: -v
           ldflags: -s -w -extldflags -static -X "github.com/yousysadmin/jc2aws/pkg.Version=${{ env.APP_VERSION }}"
           asset_name: "jc2aws-${{env.APP_VERSION}}-${{ matrix.goos }}-${{ matrix.goarch }}"
