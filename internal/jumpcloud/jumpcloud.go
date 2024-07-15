@@ -15,8 +15,8 @@ import (
 const (
 	xsrfURL              = "https://console.jumpcloud.com/userconsole/xsrf"
 	authURL              = "https://console.jumpcloud.com/userconsole/auth"
-	MaxRequestTimeout    = 5
-	MaxConnectionTimeout = 1
+	MaxRequestTimeout    = 10
+	MaxConnectionTimeout = 5
 )
 
 // xsfrResponse Jumpcloud XSRF respose structure
