@@ -20,8 +20,8 @@ type Account struct {
 	Duration        int       `yaml:"session_timeout"`
 }
 
-// FindAWSArnByName return account by account name from accounts list
-func (a *Account) FindAWSArnByName(name string) (role AWSRole, err error) {
+// FindAWSRoleArnByName return account by account name from accounts list
+func (a *Account) FindAWSRoleArnByName(name string) (role AWSRole, err error) {
 	idx := slices.IndexFunc(a.AWSRoleArns, func(r AWSRole) bool { return r.Name == name })
 	if idx < 0 {
 		return role, fmt.Errorf("the role %s not found", name)
