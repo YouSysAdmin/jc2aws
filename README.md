@@ -26,22 +26,22 @@ USAGE:
 COMMANDS:
    help, h  Shows a list of commands or help for one command
 
-OPTIONS:
-   --config value, -c value      Path to a config file (default: "/home/admin/.jc2aws.yaml") [$J2A_CONFIG]
-   --interactive, -i             Turn on interactive mode (default: false) [$J2A_INTERACTIVE]
-   --email value                 Jumpcloud user email [$J2A_EMAIL]
-   --password value              Jumpcloud user password [$J2A_PASSWORD]
-   --mfa value                   Jumpcloud user MFA token [$J2A_MFA]
-   --idp-url value               Jumpcloud IDP URL (ex: https://sso.jumpcloud.com/saml2/my-aws-prod) [$J2A_IDP_URL]
-   --role-arn value              AWS Role ARN (ex: arn:aws:iam::ACCOUNT-ID:role/admin) [$J2A_ROLE_ARN]
-   --principal-arn value         AWS Identity provider ARN (ex: arn:aws:iam::ACCOUNT-ID:saml-provider/jumpcloud) [$J2A_PRINCIPAL_ARN]
-   --region value                AWS region (ex: us-west-2) [$J2A_AWS_REGION]
-   --duration value              AWS credential expiration time (default: 3600) [$J2A_DURATION]
-   --account value               Account name present in a config [$J2A_ACCOUNT]
-   --output-format value         Credential output format (ex: cli, env, cli-stdout, env-stdout) (default: "cli") [$J2A_OUTPUT_FORMAT]
-   --aws-cli-profile-name value  AWS profile name used for store credentials [$J2A_AWS_CLI_PROFILE_NAME]
-   --help, -h                    show help (default: false)
-   --version, -v                 print the version (default: false)
+GLOBAL OPTIONS:
+   --config value, -c value         Path to a config file (default: "/Users/yousysadmin/.jc2aws.yaml") [$J2A_CONFIG]
+   --interactive, -i                Turn on interactive mode (default: false) [$J2A_INTERACTIVE]
+   --email value, -e value          Jumpcloud user email [$J2A_EMAIL]
+   --password value, -p value       Jumpcloud user password [$J2A_PASSWORD]
+   --mfa value, -m value            Jumpcloud user MFA token [$J2A_MFA]
+   --idp-url value                  Jumpcloud IDP URL (ex: https://sso.jumpcloud.com/saml2/my-aws-prod) [$J2A_IDP_URL]
+   --role-arn value                 AWS Role ARN (ex: arn:aws:iam::ACCOUNT-ID:role/admin) [$J2A_ROLE_ARN]
+   --principal-arn value            AWS Identity provider ARN (ex: arn:aws:iam::ACCOUNT-ID:saml-provider/jumpcloud) [$J2A_PRINCIPAL_ARN]
+   --region value, -r value         AWS region (ex: us-west-2) [$J2A_AWS_REGION]
+   --duration value, -d value       AWS credential expiration time (default: 3600) [$J2A_DURATION]
+   --account value, -a value        Account name present in a config [$J2A_ACCOUNT]
+   --output-format value, -f value  Credential output format (ex: cli, env, cli-stdout, env-stdout) (default: "cli") [$J2A_OUTPUT_FORMAT]
+   --aws-cli-profile-name value     AWS profile name used for store credentials [$J2A_AWS_CLI_PROFILE_NAME]
+   --shell, -s                      Launch a shell with AWS credentials (default: false) [$J2A_SHELL]
+   --help, -h                       show help
 ```
 ### Interactive
 ```shell
@@ -74,6 +74,14 @@ jc2aws --email my-user@example.com \
        --mfa "123456" # or --mfa "YourMFASecret" for automate generate MFA token
 ```
 
+### Running a shell or execute script
+You can use flag `--shell` or `-s` for run shell with a got credentials or run local script.
+
+_If you do not specify the script name as arg, the interactive shell will be launched, otherwise, the specified script will be launched._
+```shell
+jc2aws ... [-s | --shel] script.sh
+```
+
 ## Config file
 ```yaml
 # $HOME/.jc2aws.yaml
@@ -94,7 +102,7 @@ accounts:
     # Description
     description: "Production account"
     # Jumpcloud user Email
-    Email: "user@yousysadmin.com"
+    Email: "user@example.com"
     # Jumpcloud user Password
     Password: "MyVeryCoolPassword"
     # MFA Secret

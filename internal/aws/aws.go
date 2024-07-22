@@ -89,11 +89,28 @@ func GetCredentials(input AwsSamlInput) AwsSamlOutput {
 }
 
 // ToEnv output AWS credentials as Environment variables
-func (o *AwsSamlOutput) ToEnv() ([]byte, error) {
-	var buf bytes.Buffer
-	_, err := fmt.Fprintf(&buf, "AWS_ACCESS_KEY_ID=%s\nAWS_SECRET_ACCESS_KEY=%s\nAWS_SESSION_TOKEN=%s\nAWS_REGION=%s\nAWS_DEFAULT_REGION=%s\n", o.AccessKeyID, o.SecretAccessKey, o.SessionToken, o.Region, o.Region)
+func (o *AwsSamlOutput) ToEnv() []string {
+	var env []string
 
-	return buf.Bytes(), err
+	env = append(env, fmt.Sprintf("AWS_ACCESS_KEY_ID=%s", o.AccessKeyID))
+	env = append(env, fmt.Sprintf("AWS_SECRET_ACCESS_KEY=%s", o.SecretAccessKey))
+	env = append(env, fmt.Sprintf("AWS_SESSION_TOKEN=%s", o.SessionToken))
+	env = append(env, fmt.Sprintf("AWS_REGION=%s", o.Region))
+	env = append(env, fmt.Sprintf("AWS_DEFAULT_REGION=%s", o.Region))
+
+	return env
+}
+
+// PrintEnv prepare environment variables output as text
+func (o *AwsSamlOutput) PrintEnv() string {
+	env := fmt.Sprintf(`AWS_ACCESS_KEY_ID=%s
+AWS_SECRET_ACCESS_KEY=%s
+AWS_SESSION_TOKEN=%s
+AWS_REGION=%s
+AWS_DEFAULT_REGION=%s
+`, o.AccessKeyID, o.SecretAccessKey, o.SessionToken, o.Region, o.Region)
+
+	return env
 }
 
 // ToProfile output as AWS profile
