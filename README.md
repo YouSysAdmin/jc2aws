@@ -17,6 +17,16 @@ CLI tool for getting temporary AWS credentials via Jumpcloud SSO
 - Any parameters not included in a config file can be set over flags or interactive mode
 - Can use a configuration file, flags, and environment variables for customization, individually or in combination.
 
+## Install
+
+```shell
+go install github.com/yousysadmin/jc2aws/cmd/jc2aws@latest
+```
+
+```shell
+# By default install to $HOME/.bin dir
+curl -L https://raw.githubusercontent.com/yousysadmin/jc2aws/master/scripts/install.sh | bash
+```
 
 ## Usage
 ```
@@ -148,15 +158,4 @@ accounts:
     jc_idp_url: https://sso.jumpcloud.com/saml2/my-stage
     session_timeout: 3600
 
-```
-
-## Install 
-
-```shell
-go install github.com/yousysadmin/jc2aws/cmd/jc2aws@latest
-```
-
-```shell
-# By default install to $HOME/.bin dir
-curl -L https://raw.githubusercontent.com/yousysadmin/jc2aws/master/scripts/install.sh | bash
 ```
