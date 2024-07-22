@@ -1,9 +1,11 @@
 # jc2aws
 CLI tool for getting temporary AWS credentials via Jumpcloud SSO
 
-> Hello, I am making this project public because due to Russia’s war aggression against Ukraine, I am not sure about the future.
->
-> I apologize for long response time to possible issues and PR or no response at all.
+> Hi.  
+> This project is a little crude and was not planned as open-source (in the near future), but due to the military aggression from the Russian side, I decided to publish it.  
+> I can't promise updates or that your PR will be quickly reviewed.
+
+[![Stand with Ukraine](https://raw.githubusercontent.com/vshymanskyy/StandWithUkraine/main/banner2-direct.svg)](https://github.com/vshymanskyy/StandWithUkraine/blob/main/docs/README.md)
 
 ## Features:
 - Support fully automate auth including MFA Token generate.
@@ -11,6 +13,7 @@ CLI tool for getting temporary AWS credentials via Jumpcloud SSO
 - Output credentials as AWS CLI profile or Environment variables (to file or STDOUT)
   - AWS CLI file path - $HOME/.aws/credentials
   - Environment vars - $HOME/.jc2aws.env
+  - Run interactive shell or execute script - with got credentials as environment variables
 - Any parameters not included in a config file can be set over flags or interactive mode
 - Can use a configuration file, flags, and environment variables for customization, individually or in combination.
 
