@@ -463,10 +463,15 @@ func shell(ctx *cli.Context, app *App) error {
 	env := cred.ToEnv()            // Prepare credentials as []string slice
 	sysEnv := os.Environ()         // Gets current user shell environments
 	curShell := os.Getenv("SHELL") // Gets current user shell name
+	scriptName := ctx.Args().First()
 
 	var cmd *exec.Cmd
 	// Launch a shell with AWS credentials
-	cmd = exec.Command(curShell, "-i", ctx.Args().First())
+	if scriptName != "" {
+		cmd = exec.Command(curShell, "-i", scriptName)
+	} else {
+		cmd = exec.Command(curShell, "-i")
+	}
 
 	cmd.Env = append(sysEnv, env...)
 	cmd.Stdin = os.Stdin
