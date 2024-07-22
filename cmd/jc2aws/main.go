@@ -5,14 +5,14 @@ import (
 	"fmt"
 	"github.com/urfave/cli/v2"
 	"github.com/yousysadmin/jc2aws/internal/aws"
+	"github.com/yousysadmin/jc2aws/internal/config"
 	"github.com/yousysadmin/jc2aws/internal/jumpcloud"
 	"github.com/yousysadmin/jc2aws/internal/totp"
+	"github.com/yousysadmin/jc2aws/pkg"
 	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
-
-	"github.com/yousysadmin/jc2aws/internal/config"
-	"github.com/yousysadmin/jc2aws/pkg"
 )
 
 // UserHomeDir retrive current user home dir path
@@ -37,6 +37,7 @@ type App struct {
 	OutputFile     string // Credentials output file path
 	OutputFormat   string // Credential output format
 	AwsCliProfile  string // AWS CLI profile name (for `profile` output format)
+	Shell          bool   // Shell flag
 
 	Config *config.Config
 	Cli    *cli.App
@@ -179,6 +180,14 @@ func (app *App) cliInit() {
 				EnvVars:     []string{"J2A_AWS_CLI_PROFILE_NAME"},
 				Destination: &app.AwsCliProfile,
 			},
+			&cli.BoolFlag{
+				Name:        "shell",
+				Aliases:     []string{"s"},
+				Usage:       "Launch a shell with AWS credentials",
+				EnvVars:     []string{"J2A_SHELL"},
+				Value:       false,
+				Destination: &app.Shell,
+			},
 		},
 		Action: func(cCtx *cli.Context) error {
 			// Validate request user input and validate input
@@ -186,40 +195,20 @@ func (app *App) cliInit() {
 				cli.ShowCommandHelp(cCtx, cCtx.Command.Name)
 				return err
 			}
-
-			// Get credentials
-			cred, err := getCredentials(app.Email, app.Password, app.IdpURL, app.MfaToken, app.PrincipalARN, app.RoleARN, app.Region, app.Duration)
-			if err != nil {
-				return err
-			}
-
-			// Output/Store credentials
-			switch app.OutputFormat {
-			case "cli": // store as aws-cli profile
-				filePath := filepath.Join(UserHomeDir(), ".aws", "credentials")
-				c, _ := cred.ToProfile(app.AwsCliProfile, filePath)
-				if err := os.WriteFile(filePath, c, 0600); err != nil {
+			// If CLI flag `-s/ --shell` is true that runs shell,
+			// else generate and output in a credentials file
+			if app.Shell {
+				if err := shell(cCtx, app); err != nil {
 					return err
 				}
-			case "env": // store as env file
-				filePath := filepath.Join(UserHomeDir(), ".jc2aws.env")
-				c, _ := cred.ToEnv()
-				if err := os.WriteFile(filePath, c, 0600); err != nil {
-					return err
-				}
-			case "cli-stdout": // output to stdout as aws-cli profile
-				c, _ := cred.ToProfile(app.AwsCliProfile, "")
-				if _, err := io.WriteString(cCtx.App.Writer, string(c)); err != nil {
-					return err
-				}
-			case "env-stdout": // output to stdout as env variables
-				c, _ := cred.ToEnv()
-				if _, err := io.WriteString(cCtx.App.Writer, string(c)); err != nil {
+			} else {
+				// Gets and output credentials according to selected format
+				if err := output(cCtx, app); err != nil {
 					return err
 				}
 			}
 
-			return err
+			return nil
 		},
 	}
 }
@@ -414,6 +403,7 @@ func getCredentials(email, password, idpURL, mfa, principalARN, roleARN, region 
 	return cred, err
 }
 
+// fromAccountToAppConfig config.Account to App struct convertor
 func fromAccountToAppConfig(account config.Account, app *App) {
 	app.AccountName = account.Name
 	app.Email = account.Email
@@ -427,4 +417,66 @@ func fromAccountToAppConfig(account config.Account, app *App) {
 	} else if app.AwsCliProfile == "" && account.AwsCliProfile != "" {
 		app.AwsCliProfile = account.AwsCliProfile
 	}
+}
+
+// output getting and output credentials
+func output(ctx *cli.Context, app *App) error {
+	cred, err := getCredentials(app.Email, app.Password, app.IdpURL, app.MfaToken, app.PrincipalARN, app.RoleARN, app.Region, app.Duration)
+	if err != nil {
+		return err
+	}
+
+	switch app.OutputFormat {
+	case "cli": // store as aws-cli profile
+		filePath := filepath.Join(UserHomeDir(), ".aws", "credentials")
+		c, _ := cred.ToProfile(app.AwsCliProfile, filePath)
+		if err := os.WriteFile(filePath, c, 0600); err != nil {
+			return err
+		}
+	case "env": // store as env file
+		filePath := filepath.Join(UserHomeDir(), ".jc2aws.env")
+		c := cred.PrintEnv()
+		if err := os.WriteFile(filePath, []byte(c), 0600); err != nil {
+			return err
+		}
+	case "cli-stdout": // output to stdout as aws-cli profile
+		c, _ := cred.ToProfile(app.AwsCliProfile, "")
+		if _, err := io.WriteString(ctx.App.Writer, string(c)); err != nil {
+			return err
+		}
+	case "env-stdout": // output to stdout as env variables
+		c := cred.PrintEnv()
+		if _, err := io.WriteString(ctx.App.Writer, c); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// exec getting credentials and running shell
+func shell(ctx *cli.Context, app *App) error {
+	cred, err := getCredentials(app.Email, app.Password, app.IdpURL, app.MfaToken, app.PrincipalARN, app.RoleARN, app.Region, app.Duration)
+	if err != nil {
+		return err
+	}
+
+	env := cred.ToEnv()            // Prepare credentials as []string slice
+	sysEnv := os.Environ()         // Gets current user shell environments
+	curShell := os.Getenv("SHELL") // Gets current user shell name
+
+	var cmd *exec.Cmd
+	// Launch a shell with AWS credentials
+	cmd = exec.Command(curShell, "-i", ctx.Args().First())
+
+	cmd.Env = append(sysEnv, env...)
+	cmd.Stdin = os.Stdin
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+
+	err = cmd.Run()
+	if err != nil {
+		return err
+	}
+
+	return nil
 }
