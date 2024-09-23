@@ -79,7 +79,7 @@ Duration:           3600
 ```shell
 # Manual mode 
 jc2aws --email my-user@example.com \
-       --password my-password \
+       --password "my-password" \
        --idp-url "https://sso.jumpcloud.com/saml2/my-prod" \
        --role-arn "arn:aws:iam::0000000:role/jumpcloud-admin" \
        --principal-arn "arn:aws:iam::0000000:saml-provider/jumpcloud" \
