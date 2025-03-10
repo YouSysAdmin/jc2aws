@@ -1,6 +1,6 @@
 module github.com/yousysadmin/jc2aws
 
-go 1.23.4
+go 1.24.0
 
 require (
 	github.com/PuerkitoBio/goquery v1.10.0
@@ -28,7 +28,6 @@ require (
 	github.com/aws/smithy-go v1.22.1 // indirect
 	github.com/chzyer/readline v1.5.1 // indirect
 	github.com/cpuguy83/go-md2man/v2 v2.0.6 // indirect
-	github.com/jmespath/go-jmespath v0.4.0 // indirect
 	github.com/russross/blackfriday/v2 v2.1.0 // indirect
 	github.com/stretchr/testify v1.10.0 // indirect
 	github.com/xrash/smetrics v0.0.0-20240521201337-686a1a2994c1 // indirect
