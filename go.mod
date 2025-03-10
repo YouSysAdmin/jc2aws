@@ -1,6 +1,5 @@
 module github.com/yousysadmin/jc2aws
 
-go 1.23.4
 
 require (
 	github.com/PuerkitoBio/goquery v1.10.0
