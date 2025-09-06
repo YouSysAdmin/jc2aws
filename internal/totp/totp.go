@@ -5,25 +5,33 @@ import (
 	"crypto/sha1"
 	"encoding/base32"
 	"encoding/binary"
-	"strconv"
+	"fmt"
 	"strings"
 	"time"
 )
 
 // GetToken
 // Generate token from input MFA Secret key
-func GetToken(secretKey string) string {
-	now := time.Now().Unix()
-	return strconv.Itoa(int(generateTOTP(secretKey, now)))
+func GetToken(secretKey string) (string, error) {
+	now := time.Now().UTC().Unix()
+	code, err := generateTOTP(secretKey, now)
+	if err != nil {
+		return "", err
+	}
+	// Zero-pad to always return 6 digits
+	return fmt.Sprintf("%06d", code), nil
 }
 
 // generateTOTP function
-func generateTOTP(secretKey string, timestamp int64) uint32 {
+func generateTOTP(secretKey string, timestamp int64) (uint32, error) {
 
 	// The base32 encoded secret key string is decoded to a byte slice
 	base32Decoder := base32.StdEncoding.WithPadding(base32.NoPadding)
 	secretKey = strings.ToUpper(strings.TrimSpace(secretKey)) // preprocess
-	secretBytes, _ := base32Decoder.DecodeString(secretKey)   // decode
+	secretBytes, err := base32Decoder.DecodeString(secretKey) // decode
+	if err != nil {
+		return 0, fmt.Errorf("invalid base32 secret: %w", err)
+	}
 
 	// The truncated timestamp / 30 is converted to an 8-byte big-endian
 	// unsigned integer slice
@@ -42,8 +50,8 @@ func generateTOTP(secretKey string, timestamp int64) uint32 {
 	// Truncate the SHA-1 by the offset and convert it into a 32-bit
 	// unsigned int. AND the 32-bit int with 0x7FFFFFFF (2147483647)
 	// to get a 31-bit unsigned int.
-	truncatedHash := binary.BigEndian.Uint32(h[offset:]) & 0x7FFFFFFF
+	truncatedHash := binary.BigEndian.Uint32(h[offset:offset+4]) & 0x7FFFFFFF
 
 	// Take modulo 1_000_000 to get a 6-digit code
-	return truncatedHash % 1_000_000
+	return truncatedHash % 1_000_000, nil
 }
