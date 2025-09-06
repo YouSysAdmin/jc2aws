@@ -2,13 +2,14 @@ package aws
 
 import (
 	"fmt"
-	"github.com/aws/aws-sdk-go-v2/aws"
-	"github.com/aws/aws-sdk-go-v2/service/sts"
-	"github.com/aws/aws-sdk-go-v2/service/sts/types"
 	"reflect"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/service/sts"
+	"github.com/aws/aws-sdk-go-v2/service/sts/types"
 )
 
 func TestAwsSamlInput_ToAwsInput(t *testing.T) {
@@ -180,13 +181,13 @@ func TestAwsSamlOutput_ToProfile(t *testing.T) {
 			Expiration:      aws.Time(timeNow),
 		},
 			args: args{profileName: "default"},
-			want: []byte(fmt.Sprintf(`[default]
+			want: fmt.Appendf(nil, `[default]
 aws_access_key_id     = TEST_ACCESS_KEY_ID
 aws_secret_access_key = TEST_SECRET_ACCESS_KEY
 aws_session_token     = TEST_SESSION_TOKEN
 expiration            = %s
 region                = TEST_REGION
-`, timeNow))},
+`, timeNow)},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

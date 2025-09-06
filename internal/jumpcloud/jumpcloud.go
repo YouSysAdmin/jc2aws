@@ -154,7 +154,9 @@ func (jc *JumpCloud) auth() error {
 		return err
 	}
 
-	json.Unmarshal(respBody, &responseData)
+	if err := json.Unmarshal(respBody, &responseData); err != nil {
+		return err
+	}
 
 	if resp.StatusCode != 200 {
 		return errors.New(responseData.Message)
@@ -180,7 +182,9 @@ func (jc *JumpCloud) getXSRFToken() error {
 		return err
 	}
 
-	json.Unmarshal(respBody, &xsrf)
+	if err := json.Unmarshal(respBody, &xsrf); err != nil {
+		return err
+	}
 
 	if xsrf.Token == "" {
 		return errors.New("fail to get xsrf token")

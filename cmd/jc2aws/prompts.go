@@ -2,10 +2,11 @@ package main
 
 import (
 	"errors"
-	"github.com/manifoldco/promptui"
-	"github.com/yousysadmin/jc2aws/internal/config"
 	"os"
 	"strings"
+
+	"github.com/manifoldco/promptui"
+	"github.com/yousysadmin/jc2aws/internal/config"
 )
 
 // PromptAccount prompt account from account list
@@ -28,8 +29,8 @@ func PromptAccount(accounts []config.Account) (account config.Account, err error
 
 	searcher := func(input string, index int) bool {
 		account := accounts[index]
-		name := strings.Replace(strings.ToLower(account.Name), " ", "", -1)
-		input = strings.Replace(strings.ToLower(input), " ", "", -1)
+		name := strings.ReplaceAll(strings.ToLower(account.Name), " ", "")
+		input = strings.ReplaceAll(strings.ToLower(input), " ", "")
 
 		return strings.Contains(name, input)
 	}
@@ -71,8 +72,8 @@ func PromptRoleArn(account config.Account) (arn string, err error) {
 
 	searcher := func(input string, index int) bool {
 		role := account.AWSRoleArns[index]
-		name := strings.Replace(strings.ToLower(role.Name), " ", "", -1)
-		input = strings.Replace(strings.ToLower(input), " ", "", -1)
+		name := strings.ReplaceAll(strings.ToLower(role.Name), " ", "")
+		input = strings.ReplaceAll(strings.ToLower(input), " ", "")
 
 		return strings.Contains(name, input)
 	}

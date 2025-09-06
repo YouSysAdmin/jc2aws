@@ -2,11 +2,12 @@ package main
 
 import (
 	"errors"
-	"github.com/aws/aws-sdk-go-v2/aws/arn"
-	"github.com/yousysadmin/jc2aws/internal/aws"
 	"net/mail"
 	"net/url"
 	"slices"
+
+	"github.com/aws/aws-sdk-go-v2/aws/arn"
+	"github.com/yousysadmin/jc2aws/internal/aws"
 )
 
 // Input parameters validators list
