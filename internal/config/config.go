@@ -3,9 +3,10 @@ package config
 import (
 	"errors"
 	"fmt"
-	"gopkg.in/yaml.v2"
 	"os"
 	"slices"
+
+	"gopkg.in/yaml.v2"
 )
 
 const DefaultConfigFileName = ".jc2aws.yaml"

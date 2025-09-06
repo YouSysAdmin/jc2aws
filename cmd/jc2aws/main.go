@@ -3,16 +3,17 @@ package main
 import (
 	"errors"
 	"fmt"
+	"io"
+	"os"
+	"os/exec"
+	"path/filepath"
+
 	"github.com/urfave/cli/v2"
 	"github.com/yousysadmin/jc2aws/internal/aws"
 	"github.com/yousysadmin/jc2aws/internal/config"
 	"github.com/yousysadmin/jc2aws/internal/jumpcloud"
 	"github.com/yousysadmin/jc2aws/internal/totp"
 	"github.com/yousysadmin/jc2aws/pkg"
-	"io"
-	"os"
-	"os/exec"
-	"path/filepath"
 )
 
 // UserHomeDir retrive current user home dir path
@@ -380,7 +381,10 @@ func getCredentials(email, password, idpURL, mfa, principalARN, roleARN, region 
 	// If the length of the MFA parameter exceeds 6,
 	// then it is an MFA secret and needs to obtain an MFA token based on it.
 	if len(mfa) != 0 && len(mfa) > 6 {
-		mfa = totp.GetToken(mfa)
+		mfa, err = totp.GetToken(mfa)
+		if err != nil {
+			return cred, err
+		}
 	}
 
 	jc, err := jumpcloud.New(email, password, idpURL, mfa)
@@ -441,7 +445,7 @@ func output(ctx *cli.Context, app *App) error {
 		}
 	case "cli-stdout": // output to stdout as aws-cli profile
 		c, _ := cred.ToProfile(app.AwsCliProfile, "")
-		if _, err := io.WriteString(ctx.App.Writer, string(c)); err != nil {
+		if _, err := io.Writer.Write(ctx.App.Writer, c); err != nil {
 			return err
 		}
 	case "env-stdout": // output to stdout as env variables
