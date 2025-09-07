@@ -1,10 +1,6 @@
 # jc2aws
 CLI tool for getting temporary AWS credentials via Jumpcloud SSO
 
-> Hi.  
-> This project is a little crude and was not planned as open-source (in the near future), but due to the military aggression from the Russian side, I decided to publish it.  
-> I can't promise updates or that your PR will be quickly reviewed.
-
 [![Stand with Ukraine](https://raw.githubusercontent.com/vshymanskyy/StandWithUkraine/main/banner2-direct.svg)](https://github.com/vshymanskyy/StandWithUkraine/blob/main/docs/README.md)
 
 ## Features:
@@ -29,6 +25,9 @@ curl -L https://raw.githubusercontent.com/yousysadmin/jc2aws/master/scripts/inst
 ```
 
 ## Usage
+
+**IMPORTANT:** Jumpcloud only allows you to log in with one TOTP code once, in fact you can't login more than once every 30 seconds (TOTP code expiration time)
+
 ```
 NAME:
    jc2aws - Get AWS credentials
@@ -46,6 +45,7 @@ GLOBAL OPTIONS:
    --password value, -p value       Jumpcloud user password [$J2A_PASSWORD]
    --mfa value, -m value            Jumpcloud user MFA token [$J2A_MFA]
    --idp-url value                  Jumpcloud IDP URL (ex: https://sso.jumpcloud.com/saml2/my-aws-prod) [$J2A_IDP_URL]
+   --role-name value                AWS Role name (indicated in the config file) [$J2A_ROLE_NAME]
    --role-arn value                 AWS Role ARN (ex: arn:aws:iam::ACCOUNT-ID:role/admin) [$J2A_ROLE_ARN]
    --principal-arn value            AWS Identity provider ARN (ex: arn:aws:iam::ACCOUNT-ID:saml-provider/jumpcloud) [$J2A_PRINCIPAL_ARN]
    --region value, -r value         AWS region (ex: us-west-2) [$J2A_AWS_REGION]
@@ -73,11 +73,13 @@ E-mail              Present
 Password            Present
 MFA                 Present
 Duration:           3600
+
+# You can set flags --account, --role-name / --role-arn, --region for skip some interactive step
 ```
 
 ### Manual
 ```shell
-# Manual mode 
+# Full Manual mode 
 jc2aws --email my-user@example.com \
        --password "my-password" \
        --idp-url "https://sso.jumpcloud.com/saml2/my-prod" \
@@ -85,6 +87,12 @@ jc2aws --email my-user@example.com \
        --principal-arn "arn:aws:iam::0000000:saml-provider/jumpcloud" \
        --region ca-central-1 \
        --mfa "123456" # or --mfa "YourMFASecret" for automate generate MFA token
+
+# Manual from config file
+jc2aws --account my-prod \
+       --role-name=admin \      
+       # or --role-arn for define custom role
+       --region ca-central-1
 ```
 
 ### Running a shell or execute script
