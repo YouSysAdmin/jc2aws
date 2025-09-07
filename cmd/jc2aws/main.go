@@ -72,13 +72,13 @@ func (app *App) cliInit() {
 		Before: func(cCtx *cli.Context) error {
 			cfgFile, err := config.NewConfig(app.ConfigFilePath)
 			if err != nil && !errors.Is(err, os.ErrNotExist) {
-				fmt.Fprintf(cCtx.App.Writer, "\n# **Warning:**\n# Config file %s not found\n\n", app.ConfigFilePath)
+				_, _ = fmt.Fprintf(cCtx.App.Writer, "\n# **Warning:**\n# Config file %s not found\n\n", app.ConfigFilePath)
 				return nil
 			}
 			app.Config = cfgFile
 
 			if len(app.Config.Accounts) <= 0 {
-				fmt.Fprintf(cCtx.App.Writer, "\n# **Warning:**\n# Not found any accounts in the config file %s\n\n", app.ConfigFilePath)
+				_, _ = fmt.Fprintf(cCtx.App.Writer, "\n# **Warning:**\n# Not found any accounts in the config file %s\n\n", app.ConfigFilePath)
 				return nil
 			}
 
@@ -193,7 +193,7 @@ func (app *App) cliInit() {
 		Action: func(cCtx *cli.Context) error {
 			// Validate request user input and validate input
 			if err := promptOptions(app); err != nil {
-				cli.ShowCommandHelp(cCtx, cCtx.Command.Name)
+				_ = cli.ShowCommandHelp(cCtx, cCtx.Command.Name)
 				return err
 			}
 			// If CLI flag `-s/ --shell` is true that runs shell,

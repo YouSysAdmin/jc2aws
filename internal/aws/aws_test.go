@@ -127,11 +127,14 @@ func TestAwsSamlOutput_PrintEnv(t *testing.T) {
 			SessionToken:    "TEST_SESSION_TOKEN",
 			Region:          "TEST_REGION",
 		},
-			want: `AWS_ACCESS_KEY_ID=TEST_ACCESS_ID
-                AWS_SECRET_ACCESS_KEY=TEST_SECRET_ACCESS_KEY
-                AWS_SESSION_TOKEN=TEST_SESSION_TOKEN
-                AWS_REGION=TEST_REGION
-                AWS_DEFAULT_REGION=TEST_REGION`,
+
+			want: strings.Join([]string{
+				"AWS_ACCESS_KEY_ID=TEST_ACCESS_ID",
+				"AWS_SECRET_ACCESS_KEY=TEST_SECRET_ACCESS_KEY",
+				"AWS_SESSION_TOKEN=TEST_SESSION_TOKEN",
+				"AWS_REGION=TEST_REGION",
+				"AWS_DEFAULT_REGION=TEST_REGION",
+			}, "\n") + "\n",
 		},
 	}
 	for _, tt := range tests {
@@ -144,7 +147,7 @@ func TestAwsSamlOutput_PrintEnv(t *testing.T) {
 				Expiration:      tt.fields.Expiration,
 			}
 			got := o.PrintEnv()
-			if !reflect.DeepEqual(got, strings.ReplaceAll(tt.want, " ", "")) {
+			if !reflect.DeepEqual(got, tt.want) {
 				t.Errorf("ToEnv() got = %v, want %v", got, tt.want)
 			}
 		})
