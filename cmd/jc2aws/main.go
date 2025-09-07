@@ -16,19 +16,19 @@ import (
 	"github.com/yousysadmin/jc2aws/pkg"
 )
 
-// UserHomeDir retrive current user home dir path
+// UserHomeDir retrieve current user home dir path
 var UserHomeDir = func() string {
 	path, _ := os.UserHomeDir()
 	return path
 }
 
 type App struct {
-	// Store user input for flags value
 	Email          string // JumpCloud Email
 	Password       string // JumpCloud Password
 	MfaToken       string // JumpCloud MFA Token or MFA Secret
 	IdpURL         string // JumpCloud IDP URL
 	AccountName    string // AWS account name in config file (interactive and non-interactive mode)
+	RoleName       string // AWS Role name in config file
 	RoleARN        string // AWS role ARN
 	PrincipalARN   string // AWS Principal ARN
 	Region         string // AWS Region
@@ -54,14 +54,50 @@ func main() {
 	}
 
 	app.cliInit()
-	err := app.Cli.Run(os.Args)
-	if err != nil {
+	if err := app.Cli.Run(os.Args); err != nil {
 		fmt.Println("Error: ", err)
 		os.Exit(1)
 	}
 }
 
-// cliInit initialise CLI
+// Helpers
+func writeBytes(w io.Writer, b []byte) error {
+	_, err := w.Write(b)
+	return err
+}
+
+func promptIfEmpty(interactive bool, cur *string, label, key, typ string, requiredErr error) error {
+	if *cur != "" {
+		return nil
+	}
+	if !interactive {
+		return requiredErr
+	}
+	val, err := PromptSimple(label, key, typ)
+	if err != nil {
+		return err
+	}
+	*cur = val
+	return nil
+}
+
+func validateIfSet(v string, validator func(string) error) error {
+	if v == "" || validator == nil {
+		return nil
+	}
+	return validator(v)
+}
+
+func firstNonEmpty(vals ...string) string {
+	for _, v := range vals {
+		if v != "" {
+			return v
+		}
+	}
+	return ""
+}
+
+// CLI init
 func (app *App) cliInit() {
 	app.Cli = &cli.App{
 		Name:                 "",
@@ -82,10 +118,9 @@ func (app *App) cliInit() {
 				return nil
 			}
 
-			return err
+			return nil
 		},
 
-		// CLI Commands
 		Flags: []cli.Flag{
 			&cli.StringFlag{
 				Name:        "config",
@@ -132,6 +167,12 @@ func (app *App) cliInit() {
 				Usage:       "Jumpcloud IDP URL (ex: https://sso.jumpcloud.com/saml2/my-aws-prod)",
 				EnvVars:     []string{"J2A_IDP_URL"},
 				Destination: &app.IdpURL,
+			},
+			&cli.StringFlag{
+				Name:        "role-name",
+				Usage:       "AWS Role name (indicated in the config file)",
+				EnvVars:     []string{"J2A_ROLE_NAME"},
+				Destination: &app.RoleName,
 			},
 			&cli.StringFlag{
 				Name:        "role-arn",
@@ -191,196 +232,184 @@ func (app *App) cliInit() {
 			},
 		},
 		Action: func(cCtx *cli.Context) error {
-			// Validate request user input and validate input
 			if err := promptOptions(app); err != nil {
 				_ = cli.ShowCommandHelp(cCtx, cCtx.Command.Name)
 				return err
 			}
-			// If CLI flag `-s/ --shell` is true that runs shell,
-			// else generate and output in a credentials file
-			if app.Shell {
-				if err := shell(cCtx, app); err != nil {
-					return err
-				}
-			} else {
-				// Gets and output credentials according to selected format
-				if err := output(cCtx, app); err != nil {
-					return err
-				}
-			}
 
-			return nil
+			if app.Shell {
+				return shell(cCtx, app)
+			}
+			return output(cCtx, app)
 		},
 	}
 }
 
-// promptOptions request input from a user and validate inputs
-func promptOptions(app *App) (err error) {
-	if len(app.Config.Accounts) > 0 {
-		var account config.Account
-
-		if app.Interactive && app.AccountName == "" {
-			// Select account from a pre-configured account list in the interactive mode
-			account, err = PromptAccount(app.Config.GetAccounts())
-			if err != nil {
-				return err
-			}
-			fromAccountToAppConfig(account, app)
-
-		} else if (!app.Interactive && app.AccountName != "") || (app.Interactive && app.AccountName != "") {
-			// Find account from a pre-configured account list by name in the non-interactive mode
-			// or in the interactive mode with set account-name flag
-			account, err = app.Config.FindAccountByName(app.AccountName)
-			if err != nil {
-				return err
-			}
-			fromAccountToAppConfig(account, app)
-		}
-
-		// Select Role from a pre-configured account
-		if len(account.AWSRoleArns) > 0 && app.RoleARN == "" && app.Interactive {
-			app.RoleARN, err = PromptRoleArn(account)
-			if err != nil {
-				return err
-			}
-		}
-		// Select AWS region from a pre-configured account
-		if len(account.AWSRegions) > 0 && app.Region == "" && app.Interactive {
-			app.Region, err = PromptRegion(account.AWSRegions)
-			if err != nil {
-				return err
-			}
-		}
-	} else if len(app.Config.Accounts) <= 0 && app.AccountName != "" {
-		return errors.New(AccountNameCantBeUsed)
+// Input prompting and validation
+func promptOptions(app *App) error {
+	// Resolve account
+	account, err := resolveAccount(app)
+	if err != nil {
+		return err
+	}
+	if account != nil {
+		fromAccountToAppConfig(*account, app)
 	}
 
-	if app.Email == "" {
-		if app.Interactive {
-			if app.Email, err = PromptSimple("Email", "email", "simple"); err != nil {
-				return err
-			}
-		} else {
-			return errors.New(EmailIsRequired)
-		}
-
-	} else {
-		if err = validators["email"](app.Email); err != nil {
-			return err
-		}
-	}
-
-	if app.Password == "" {
-		if app.Interactive {
-			if app.Password, err = PromptSimple("Password", "password", "masked"); err != nil {
-				return err
-			}
-		} else {
-			return errors.New(PasswordIsRequired)
-		}
-
-	} else {
-		if err = validators["password"](app.Password); err != nil {
-			return err
-		}
-	}
-
-	if app.IdpURL == "" {
-		if app.Interactive {
-			if app.IdpURL, err = PromptSimple("IDP URL", "idp-url", "simple"); err != nil {
-				return err
-			}
-		} else {
-			return errors.New(IdpURLRequred)
-		}
-
-	} else {
-		if err = validators["idp-url"](app.IdpURL); err != nil {
-			return err
-		}
-	}
-
+	// Role resolution: prefer RoleARN, else map RoleName → RoleARN (with account),
+	// else interactive prompt (if account has roles), else require RoleARN.
 	if app.RoleARN == "" {
-		if app.Interactive {
-			if app.RoleARN, err = PromptSimple("Role ARN", "role-arn", "simple"); err != nil {
+		switch {
+		case app.RoleName != "" && account != nil:
+			arn, err := account.FindAWSRoleArnByName(app.RoleName)
+			if err != nil {
 				return err
 			}
-		} else {
+			app.RoleARN = arn.Arn
+		case app.Interactive && account != nil && len(account.AWSRoleArns) > 0:
+			app.RoleARN, err = PromptRoleArn(*account)
+			if err != nil {
+				return err
+			}
+		case app.Interactive:
+			app.RoleARN, err = PromptSimple("Role ARN", "role-arn", "simple")
+			if err != nil {
+				return err
+			}
+		default:
 			return errors.New(AwsRoleArnIsRequired)
 		}
-
-	} else {
-		if err = validators["role-arn"](app.RoleARN); err != nil {
-			return err
-		}
+	} else if err := validateIfSet(app.RoleARN, validators["role-arn"]); err != nil {
+		return err
 	}
 
-	if app.PrincipalARN == "" {
-		if app.Interactive {
-			if app.PrincipalARN, err = PromptSimple("Principal ARN", "principal-arn", "simple"); err != nil {
-				return err
-			}
-		} else {
-			return errors.New(AwsPrincipalUrlIsRequired)
-		}
-	} else {
-		if err = validators["principal-arn"](app.PrincipalARN); err != nil {
-			return err
-		}
-	}
-
+	// Region: prefer provided; else prompt from account regions; else general list.
 	if app.Region == "" {
 		if app.Interactive {
-			if app.Region, err = PromptRegion(aws.RegionsList); err != nil {
+			if account != nil && len(account.AWSRegions) > 0 {
+				app.Region, err = PromptRegion(account.AWSRegions)
+			} else {
+				app.Region, err = PromptRegion(aws.RegionsList)
+			}
+			if err != nil {
 				return err
 			}
 		} else {
 			return errors.New(AwsRegionIsRequired)
 		}
-
-	} else {
-		if err = validators["region"](app.Region); err != nil {
-			return err
-		}
+	} else if err := validateIfSet(app.Region, validators["region"]); err != nil {
+		return err
 	}
 
+	// Email
+	if err := promptIfEmpty(app.Interactive, &app.Email, "Email", "email", "simple", errors.New(EmailIsRequired)); err != nil {
+		return err
+	}
+	if err := validateIfSet(app.Email, validators["email"]); err != nil {
+		return err
+	}
+
+	// Password
+	if err := promptIfEmpty(app.Interactive, &app.Password, "Password", "password", "masked", errors.New(PasswordIsRequired)); err != nil {
+		return err
+	}
+	if err := validateIfSet(app.Password, validators["password"]); err != nil {
+		return err
+	}
+
+	// IDP URL
+	if err := promptIfEmpty(app.Interactive, &app.IdpURL, "IDP URL", "idp-url", "simple", errors.New(IdpURLRequred)); err != nil {
+		return err
+	}
+	if err := validateIfSet(app.IdpURL, validators["idp-url"]); err != nil {
+		return err
+	}
+
+	// Principal ARN
+	if err := promptIfEmpty(app.Interactive, &app.PrincipalARN, "Principal ARN", "principal-arn", "simple", errors.New(AwsPrincipalUrlIsRequired)); err != nil {
+		return err
+	}
+	if err := validateIfSet(app.PrincipalARN, validators["principal-arn"]); err != nil {
+		return err
+	}
+
+	// Output format (validate if provided; keep default if empty)
 	if app.OutputFormat != "" {
-		if err = validators["output-format"](app.OutputFormat); err != nil {
+		if err := validateIfSet(app.OutputFormat, validators["output-format"]); err != nil {
 			return err
 		}
 	}
 
-	if app.AwsCliProfile == "" && (app.OutputFormat == "cli" || app.OutputFormat == "cli-stdout") {
-		if app.Interactive {
-			if app.AwsCliProfile, err = PromptSimple("AWS Cli profile name", "skip", "simple"); err != nil {
-				return err
+	// AWS CLI profile name required for cli / cli-stdout
+	if app.OutputFormat == "cli" || app.OutputFormat == "cli-stdout" {
+		if app.AwsCliProfile == "" {
+			if app.Interactive {
+				val, err := PromptSimple("AWS Cli profile name", "skip", "simple")
+				if err != nil {
+					return err
+				}
+				app.AwsCliProfile = val
+			} else {
+				return errors.New(AwsCliProfileNameIsRequired)
 			}
-		} else {
-			return errors.New(AwsCliProfileNameIsRequired)
 		}
 	}
 
-	if app.MfaToken == "" {
-		if app.Interactive {
-			if app.MfaToken, err = PromptSimple("MFA Token Or MFA Secret", "skip", "simple"); err != nil {
-				return err
-			}
-		}
-	} else {
-		if err = validators["mfa"](app.MfaToken); err != nil {
+	// MFA (optional); if set, validate format
+	if app.MfaToken == "" && app.Interactive {
+		val, err := PromptSimple("MFA Token Or MFA Secret", "skip", "simple")
+		if err != nil {
 			return err
 		}
+		app.MfaToken = val
+	}
+	if err := validateIfSet(app.MfaToken, validators["mfa"]); err != nil {
+		return err
 	}
 
-	return err
+	return nil
 }
 
-// getCredentials auth via Jumpcloud and get AWS credentials
-func getCredentials(email, password, idpURL, mfa, principalARN, roleARN, region string, duration int) (cred aws.AwsSamlOutput, err error) {
+// Resolve account by interactive selection or by name; returns nil if not chosen/available.
+func resolveAccount(app *App) (*config.Account, error) {
+	if len(app.Config.Accounts) == 0 {
+		if app.AccountName != "" {
+			return nil, errors.New(AccountNameCantBeUsed)
+		}
+		return nil, nil
+	}
 
-	// If the length of the MFA parameter exceeds 6,
-	// then it is an MFA secret and needs to obtain an MFA token based on it.
-	if len(mfa) != 0 && len(mfa) > 6 {
+	// Interactive: no name → prompt; with name → find
+	if app.Interactive {
+		if app.AccountName == "" {
+			acc, err := PromptAccount(app.Config.GetAccounts())
+			if err != nil {
+				return nil, err
+			}
+			return &acc, nil
+		}
+		acc, err := app.Config.FindAccountByName(app.AccountName)
+		if err != nil {
+			return nil, err
+		}
+		return &acc, nil
+	}
+
+	// Non-interactive: only if name provided
+	if app.AccountName == "" {
+		return nil, nil
+	}
+	acc, err := app.Config.FindAccountByName(app.AccountName)
+	if err != nil {
+		return nil, err
+	}
+	return &acc, nil
+}
+
+// Get credentials flow
+func getCredentials(email, password, idpURL, mfa, principalARN, roleARN, region string, duration int) (cred aws.AwsSamlOutput, err error) {
+	// If MFA value length > 6, treat as secret and derive TOTP
+	if len(mfa) > 6 {
 		mfa, err = totp.GetToken(mfa)
 		if err != nil {
 			return cred, err
@@ -403,27 +432,35 @@ func getCredentials(email, password, idpURL, mfa, principalARN, roleARN, region 
 		DurationSeconds: int32(duration),
 		Region:          region,
 	})
-
-	return cred, err
+	return cred, nil
 }
 
-// fromAccountToAppConfig config.Account to App struct convertor
+// Copy config.Account into App, preferring explicit CLI overrides already set in App.
 func fromAccountToAppConfig(account config.Account, app *App) {
-	app.AccountName = account.Name
-	app.Email = account.Email
-	app.Password = account.Password
-	app.IdpURL = account.IdpURL
-	app.MfaToken = account.MFASecret
-	app.PrincipalARN = account.AWSPrincipalArn
-	app.Duration = account.Duration
-	if app.AwsCliProfile == "" && account.AwsCliProfile == "" {
-		app.AwsCliProfile = account.Name
-	} else if app.AwsCliProfile == "" && account.AwsCliProfile != "" {
+	app.AccountName = firstNonEmpty(app.AccountName, account.Name)
+	app.Email = firstNonEmpty(app.Email, account.Email)
+	app.Password = firstNonEmpty(app.Password, account.Password)
+	app.IdpURL = firstNonEmpty(app.IdpURL, account.IdpURL)
+	app.MfaToken = firstNonEmpty(app.MfaToken, account.MFASecret)
+	app.PrincipalARN = firstNonEmpty(app.PrincipalARN, account.AWSPrincipalArn)
+
+	// Duration: use app if non-zero, else account if non-zero
+	if app.Duration == 0 && account.Duration != 0 {
+		app.Duration = account.Duration
+	}
+
+	// AWS CLI profile: prefer explicit flag; else account value; else account name
+	switch {
+	case app.AwsCliProfile != "":
+		// keep
+	case account.AwsCliProfile != "":
 		app.AwsCliProfile = account.AwsCliProfile
+	default:
+		app.AwsCliProfile = account.Name
 	}
 }
 
-// output getting and output credentials
+// Output credentials in selected format
 func output(ctx *cli.Context, app *App) error {
 	cred, err := getCredentials(app.Email, app.Password, app.IdpURL, app.MfaToken, app.PrincipalARN, app.RoleARN, app.Region, app.Duration)
 	if err != nil {
@@ -431,61 +468,59 @@ func output(ctx *cli.Context, app *App) error {
 	}
 
 	switch app.OutputFormat {
-	case "cli": // store as aws-cli profile
+	case "cli": // store as aws-cli credentials (~/.aws/credentials)
 		filePath := filepath.Join(UserHomeDir(), ".aws", "credentials")
 		c, _ := cred.ToProfile(app.AwsCliProfile, filePath)
 		if err := os.WriteFile(filePath, c, 0600); err != nil {
 			return err
 		}
-	case "env": // store as env file
+	case "env": // store as env file (~/.jc2aws.env)
 		filePath := filepath.Join(UserHomeDir(), ".jc2aws.env")
-		c := cred.PrintEnv()
-		if err := os.WriteFile(filePath, []byte(c), 0600); err != nil {
+		if err := os.WriteFile(filePath, []byte(cred.PrintEnv()), 0600); err != nil {
 			return err
 		}
-	case "cli-stdout": // output to stdout as aws-cli profile
+	case "cli-stdout": // print aws-cli credentials to STDOUT
 		c, _ := cred.ToProfile(app.AwsCliProfile, "")
-		if _, err := io.Writer.Write(ctx.App.Writer, c); err != nil {
+		if err := writeBytes(ctx.App.Writer, c); err != nil {
 			return err
 		}
-	case "env-stdout": // output to stdout as env variables
-		c := cred.PrintEnv()
-		if _, err := io.WriteString(ctx.App.Writer, c); err != nil {
+	case "env-stdout": // print env variables to STDOUT
+		if _, err := io.WriteString(ctx.App.Writer, cred.PrintEnv()); err != nil {
 			return err
 		}
+	default:
+		return fmt.Errorf("unsupported output format: %s", app.OutputFormat)
 	}
+
 	return nil
 }
 
-// exec getting credentials and running shell
+// Start interactive shell with AWS credentials environment variables
 func shell(ctx *cli.Context, app *App) error {
 	cred, err := getCredentials(app.Email, app.Password, app.IdpURL, app.MfaToken, app.PrincipalARN, app.RoleARN, app.Region, app.Duration)
 	if err != nil {
 		return err
 	}
 
-	env := cred.ToEnv()            // Prepare credentials as []string slice
-	sysEnv := os.Environ()         // Gets current user shell environments
-	curShell := os.Getenv("SHELL") // Gets current user shell name
-	scriptName := ctx.Args().First()
+	env := cred.ToEnv()    // []string with creds
+	sysEnv := os.Environ() // current env
+	curShell := os.Getenv("SHELL")
+	if curShell == "" {
+		// sensible fallback; avoids exec error on minimal environments
+		curShell = "/bin/sh"
+	}
 
+	scriptName := ctx.Args().First()
 	var cmd *exec.Cmd
-	// Launch a shell with AWS credentials
 	if scriptName != "" {
 		cmd = exec.Command(curShell, "-i", scriptName)
 	} else {
 		cmd = exec.Command(curShell, "-i")
 	}
-
 	cmd.Env = append(sysEnv, env...)
 	cmd.Stdin = os.Stdin
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 
-	err = cmd.Run()
-	if err != nil {
-		return err
-	}
-
-	return nil
+	return cmd.Run()
 }

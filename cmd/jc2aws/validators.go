@@ -56,7 +56,7 @@ var validators = map[string]func(input string) error{
 	},
 	"mfa": func(input string) error {
 		if len(input) < 6 {
-			return errors.New("mfa must be at least 6 characters")
+			return errors.New("mfa must be a 6-digit totp code or mfa secret string.")
 		}
 		return nil
 	},
