@@ -1,5 +1,5 @@
 # jc2aws
-CLI tool for getting temporary AWS credentials via Jumpcloud SSO
+CLI tool for getting temporary AWS credentials via Jumpcloud SSO (SAML)
 
 [![Stand with Ukraine](https://raw.githubusercontent.com/vshymanskyy/StandWithUkraine/main/banner2-direct.svg)](https://github.com/vshymanskyy/StandWithUkraine/blob/main/docs/README.md)
 
