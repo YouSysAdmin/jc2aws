@@ -201,7 +201,7 @@ region                = TEST_REGION
 				Region:          tt.fields.Region,
 				Expiration:      tt.fields.Expiration,
 			}
-			got, err := o.ToProfile(tt.args.profileName, tt.args.inputIniFile)
+			got, err := o.ToAwsCredentials(tt.args.profileName, tt.args.inputIniFile)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("ToProfile() error = %v, wantErr %v", err, tt.wantErr)
 				return

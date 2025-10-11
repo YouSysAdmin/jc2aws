@@ -468,10 +468,18 @@ func output(ctx *cli.Context, app *App) error {
 	}
 
 	switch app.OutputFormat {
-	case "cli": // store as aws-cli credentials (~/.aws/credentials)
-		filePath := filepath.Join(UserHomeDir(), ".aws", "credentials")
-		c, _ := cred.ToProfile(app.AwsCliProfile, filePath)
-		if err := os.WriteFile(filePath, c, 0600); err != nil {
+	case "cli": // store as aws-cli credentials
+		// ~/.aws/credentials
+		filePathCreds := filepath.Join(UserHomeDir(), ".aws", "credentials")
+		creds, _ := cred.ToAwsCredentials(app.AwsCliProfile, filePathCreds)
+		if err := os.WriteFile(filePathCreds, creds, 0600); err != nil {
+			return err
+		}
+
+		// ~/.aws/config
+		filePathConf := filepath.Join(UserHomeDir(), ".aws", "config")
+		conf, _ := cred.ToAwsConfig(app.AwsCliProfile, filePathConf)
+		if err := os.WriteFile(filePathConf, conf, 0600); err != nil {
 			return err
 		}
 	case "env": // store as env file (~/.jc2aws.env)
@@ -480,7 +488,7 @@ func output(ctx *cli.Context, app *App) error {
 			return err
 		}
 	case "cli-stdout": // print aws-cli credentials to STDOUT
-		c, _ := cred.ToProfile(app.AwsCliProfile, "")
+		c, _ := cred.ToAwsCredentials(app.AwsCliProfile, "")
 		if err := writeBytes(ctx.App.Writer, c); err != nil {
 			return err
 		}

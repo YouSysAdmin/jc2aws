@@ -8,7 +8,7 @@ import (
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
-	"github.com/aws/aws-sdk-go-v2/config"
+	"github.com/aws/aws-sdk-go-v2/credentials"
 	"github.com/aws/aws-sdk-go-v2/service/sts"
 	"github.com/aws/aws-sdk-go-v2/service/sts/types"
 	"gopkg.in/ini.v1"
@@ -72,11 +72,14 @@ func GetCredentials(input AwsSamlInput) AwsSamlOutput {
 	awsInput, region := input.ToAwsInput()
 
 	ctx := context.TODO()
-	cfg, err := config.LoadDefaultConfig(ctx)
-	cfg.Region = region
-	if err != nil {
-		log.Fatal(err)
+	cfg := aws.Config{ // just stub for the sdk config
+		Credentials: credentials.NewStaticCredentialsProvider(
+			"AKIAEXAMPLE",
+			"SECRETEXAMPLE",
+			"",
+		),
 	}
+	cfg.Region = region
 
 	client := sts.NewFromConfig(cfg)
 
@@ -113,20 +116,41 @@ AWS_DEFAULT_REGION=%s
 	return env
 }
 
-// ToProfile output as AWS profile
+// ToAwsCredentials output as AWS profile
 // If an input file exists, loading existing profiles and rewriting exist profile or adding a new
-func (o *AwsSamlOutput) ToProfile(profileName string, inputIniFile string) ([]byte, error) {
+func (o *AwsSamlOutput) ToAwsCredentials(profileName string, inputIniFile string) ([]byte, error) {
 	var buf bytes.Buffer
 
 	profile, err := ini.LooseLoad(inputIniFile)
 	if err != nil {
 		return nil, err
 	}
+
 	section, _ := profile.NewSection(profileName)
 	section.Key("aws_access_key_id").SetValue(o.AccessKeyID)
 	section.Key("aws_secret_access_key").SetValue(o.SecretAccessKey)
 	section.Key("aws_session_token").SetValue(o.SessionToken)
 	section.Key("expiration").SetValue(o.Expiration.String())
+
+	_, err = profile.WriteTo(&buf)
+
+	return buf.Bytes(), err
+}
+
+// ToAwsCredentials output as AWS profile
+// If an input file exists, loading existing profiles and rewriting exist profile or adding a new
+func (o *AwsSamlOutput) ToAwsConfig(profileName string, inputIniFile string) ([]byte, error) {
+	var buf bytes.Buffer
+
+	if profileName != DefaultAwsProfileName {
+		profileName = "profile " + profileName
+	}
+
+	profile, err := ini.LooseLoad(inputIniFile)
+	if err != nil {
+		return nil, err
+	}
+	section, _ := profile.NewSection(profileName)
 	section.Key("region").SetValue(o.Region)
 
 	_, err = profile.WriteTo(&buf)
