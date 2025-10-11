@@ -180,7 +180,6 @@ func TestAwsSamlOutput_ToProfile(t *testing.T) {
 			AccessKeyID:     "TEST_ACCESS_KEY_ID",
 			SecretAccessKey: "TEST_SECRET_ACCESS_KEY",
 			SessionToken:    "TEST_SESSION_TOKEN",
-			Region:          "TEST_REGION",
 			Expiration:      aws.Time(timeNow),
 		},
 			args: args{profileName: "default"},
@@ -189,7 +188,6 @@ aws_access_key_id     = TEST_ACCESS_KEY_ID
 aws_secret_access_key = TEST_SECRET_ACCESS_KEY
 aws_session_token     = TEST_SESSION_TOKEN
 expiration            = %s
-region                = TEST_REGION
 `, timeNow)},
 	}
 	for _, tt := range tests {
@@ -198,7 +196,6 @@ region                = TEST_REGION
 				AccessKeyID:     tt.fields.AccessKeyID,
 				SecretAccessKey: tt.fields.SecretAccessKey,
 				SessionToken:    tt.fields.SessionToken,
-				Region:          tt.fields.Region,
 				Expiration:      tt.fields.Expiration,
 			}
 			got, err := o.ToAwsCredentials(tt.args.profileName, tt.args.inputIniFile)
