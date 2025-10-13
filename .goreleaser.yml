@@ -101,8 +101,8 @@ dockers:
     image_templates:
       - ghcr.io/yousysadmin/jc2aws:{{ .Version }}-amd64
     dockerfile: build/docker/Dockerfile
-    extra_files:
-      - build/docker/entrypoint.sh
+    # extra_files:
+    #   - build/docker/entrypoint.sh
     use: buildx
     build_flag_templates:
       - --platform=linux/amd64
@@ -114,8 +114,8 @@ dockers:
     image_templates:
       - ghcr.io/yousysadmin/jc2aws:{{ .Version }}-arm64
     dockerfile: build/docker/Dockerfile
-    extra_files:
-      - build/docker/entrypoint.sh
+    # extra_files:
+    #   - build/docker/entrypoint.sh
     use: buildx
     build_flag_templates:
       - --platform=linux/arm64
