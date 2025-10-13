@@ -1,7 +1,6 @@
 #!/bin/sh
 set -e
 
-
 usage() {
   this=$1
   cat <<EOF
@@ -25,9 +24,9 @@ parse_args() {
   BINDIR=${BINDIR:-$HOME/.bin}
   while getopts "b:dh?" arg; do
     case "$arg" in
-      b) BINDIR="$OPTARG" ;;
-      d) log_set_priority 10 ;;
-      h | \?) usage "$0" ;;
+    b) BINDIR="$OPTARG" ;;
+    d) log_set_priority 10 ;;
+    h | \?) usage "$0" ;;
     esac
   done
   shift $((OPTIND - 1))
@@ -53,10 +52,10 @@ is_supported_platform() {
   platform=$1
   found=1
   case "$platform" in
-    darwin/amd64) found=0 ;;
-    darwin/arm64) found=0 ;;
-    linux/amd64) found=0 ;;
-    linux/arm64) found=0 ;;
+  darwin/amd64) found=0 ;;
+  darwin/arm64) found=0 ;;
+  linux/amd64) found=0 ;;
+  linux/arm64) found=0 ;;
   esac
   return $found
 }
@@ -121,15 +120,15 @@ log_priority() {
 }
 log_tag() {
   case $1 in
-    0) echo "emerg" ;;
-    1) echo "alert" ;;
-    2) echo "crit" ;;
-    3) echo "err" ;;
-    4) echo "warning" ;;
-    5) echo "notice" ;;
-    6) echo "info" ;;
-    7) echo "debug" ;;
-    *) echo "$1" ;;
+  0) echo "emerg" ;;
+  1) echo "alert" ;;
+  2) echo "crit" ;;
+  3) echo "err" ;;
+  4) echo "warning" ;;
+  5) echo "notice" ;;
+  6) echo "info" ;;
+  7) echo "debug" ;;
+  *) echo "$1" ;;
   esac
 }
 log_debug() {
@@ -151,73 +150,73 @@ log_crit() {
 uname_os() {
   os=$(uname -s | tr '[:upper:]' '[:lower:]')
   case "$os" in
-    msys_nt) os="windows" ;;
+  msys_nt) os="windows" ;;
   esac
   echo "$os"
 }
 uname_arch() {
   arch=$(uname -m)
   case $arch in
-    x86_64) arch="amd64" ;;
-    x86) arch="386" ;;
-    i686) arch="386" ;;
-    i386) arch="386" ;;
-    aarch64) arch="arm64" ;;
-    armv5*) arch="armv5" ;;
-    armv6*) arch="armv6" ;;
-    armv7*) arch="armv7" ;;
+  x86_64) arch="amd64" ;;
+  x86) arch="386" ;;
+  i686) arch="386" ;;
+  i386) arch="386" ;;
+  aarch64) arch="arm64" ;;
+  armv5*) arch="armv5" ;;
+  armv6*) arch="armv6" ;;
+  armv7*) arch="armv7" ;;
   esac
   echo ${arch}
 }
 uname_os_check() {
   os=$(uname_os)
   case "$os" in
-    darwin) return 0 ;;
-    dragonfly) return 0 ;;
-    freebsd) return 0 ;;
-    linux) return 0 ;;
-    android) return 0 ;;
-    nacl) return 0 ;;
-    netbsd) return 0 ;;
-    openbsd) return 0 ;;
-    plan9) return 0 ;;
-    solaris) return 0 ;;
-    windows) return 0 ;;
+  darwin) return 0 ;;
+  dragonfly) return 0 ;;
+  freebsd) return 0 ;;
+  linux) return 0 ;;
+  android) return 0 ;;
+  nacl) return 0 ;;
+  netbsd) return 0 ;;
+  openbsd) return 0 ;;
+  plan9) return 0 ;;
+  solaris) return 0 ;;
+  windows) return 0 ;;
   esac
-  log_crit "uname_os_check '$(uname -s)' got converted to '$os' which is not a GOOS value. Please file bug at https://github.com/client9/shlib"
+  log_crit "uname_os_check '$(uname -s)' got converted to '$os' which is not a GOOS value. Please file bug at https://github.com/YouSysAdmin/jc2aws"
   return 1
 }
 uname_arch_check() {
   arch=$(uname_arch)
   case "$arch" in
-    386) return 0 ;;
-    amd64) return 0 ;;
-    arm64) return 0 ;;
-    armv5) return 0 ;;
-    armv6) return 0 ;;
-    armv7) return 0 ;;
-    ppc64) return 0 ;;
-    ppc64le) return 0 ;;
-    mips) return 0 ;;
-    mipsle) return 0 ;;
-    mips64) return 0 ;;
-    mips64le) return 0 ;;
-    s390x) return 0 ;;
-    amd64p32) return 0 ;;
+  386) return 0 ;;
+  amd64) return 0 ;;
+  arm64) return 0 ;;
+  armv5) return 0 ;;
+  armv6) return 0 ;;
+  armv7) return 0 ;;
+  ppc64) return 0 ;;
+  ppc64le) return 0 ;;
+  mips) return 0 ;;
+  mipsle) return 0 ;;
+  mips64) return 0 ;;
+  mips64le) return 0 ;;
+  s390x) return 0 ;;
+  amd64p32) return 0 ;;
   esac
-  log_crit "uname_arch_check '$(uname -m)' got converted to '$arch' which is not a GOARCH value.  Please file bug report at https://github.com/client9/shlib"
+  log_crit "uname_arch_check '$(uname -m)' got converted to '$arch' which is not a GOARCH value.  Please file bug report at https://github.com/YouSysAdmin/jc2aws"
   return 1
 }
 untar() {
   tarball=$1
   case "${tarball}" in
-    *.tar.gz | *.tgz) tar -xzf "${tarball}" ;;
-    *.tar) tar -xf "${tarball}" ;;
-    *.zip) unzip "${tarball}" ;;
-    *)
-      log_err "untar unknown archive format for ${tarball}"
-      return 1
-      ;;
+  *.tar.gz | *.tgz) tar -xzf "${tarball}" ;;
+  *.tar) tar -xf "${tarball}" ;;
+  *.zip) unzip "${tarball}" ;;
+  *)
+    log_err "untar unknown archive format for ${tarball}"
+    return 1
+    ;;
   esac
 }
 mktmpdir() {
@@ -313,7 +312,7 @@ hash_sha256_verify() {
     return 1
   fi
 
-  want=$(cat "${checksums}")
+  want=$(cat "${checksums}" | grep "${TARGET##*/}" | awk '{ print $1 }')
   if [ -z "$want" ]; then
     log_err "hash_sha256_verify unable to read checksum for '${TARGET}' in '${checksums}'"
     return 1
@@ -341,7 +340,7 @@ PREFIX="$OWNER/$REPO"
 
 # use in logging routines
 log_prefix() {
-	echo "$PREFIX"
+  echo "$PREFIX"
 }
 PLATFORM="${OS}/${ARCH}"
 GITHUB_DOWNLOAD=https://github.com/${OWNER}/${REPO}/releases/download
@@ -363,10 +362,10 @@ adjust_arch
 
 log_info "found version: ${REALTAG} for ${TAG}/${PLATFORM}"
 
-NAME=${PROJECT_NAME}-${REALTAG}-${OS}-${ARCH}
+NAME=${PROJECT_NAME}_${REALTAG}_${OS}_${ARCH}
 TARBALL=${NAME}.${FORMAT}
 TARBALL_URL=${GITHUB_DOWNLOAD}/${REALTAG}/${TARBALL}
-CHECKSUM_FILE_NAME=${TARBALL}.sha256
+CHECKSUM_FILE_NAME=checksums.sha256
 CHECKSUM_FILE_URL=${GITHUB_DOWNLOAD}/${REALTAG}/${CHECKSUM_FILE_NAME}
 
 execute
