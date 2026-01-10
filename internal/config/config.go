@@ -74,7 +74,7 @@ func (c *Config) GetAccountsNameList() ([]string, error) {
 func (c *Config) GetDefaultEmail() string { return c.DefaultEmail }
 
 // GetDefaultPassword return list of accounts
-func (c *Config) GetDefaultPassword() string { return c.DefaultEmail }
+func (c *Config) GetDefaultPassword() string { return c.DefaultPassword }
 
 func (c *Config) GetDefaultMFATokenSecret() string { return c.DefaultMFATokenSecret }
 
