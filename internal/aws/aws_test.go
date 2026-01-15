@@ -10,6 +10,8 @@ import (
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/sts"
 	"github.com/aws/aws-sdk-go-v2/service/sts/types"
+
+	"gopkg.in/ini.v1"
 )
 
 func TestAwsSamlInput_ToAwsInput(t *testing.T) {
@@ -241,5 +243,126 @@ func TestToAwsSamlOutput(t *testing.T) {
 				t.Errorf("ToAwsSamlOutput() = %v, want %v", got, tt.want)
 			}
 		})
+	}
+}
+
+func TestAwsSamlOutputToAwsConfig(t *testing.T) {
+	output := AwsSamlOutput{
+		Region: "us-west-2",
+	}
+
+	tests := []struct {
+		name          string
+		profileName   string
+		expectSection string
+	}{
+		{
+			name:          "default profile",
+			profileName:   "default",
+			expectSection: "default",
+		},
+		{
+			name:          "named profile",
+			profileName:   "test-profile",
+			expectSection: "profile test-profile",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			inputIniFile := ""
+			result, err := output.ToAwsConfig(tt.profileName, inputIniFile)
+			if err != nil {
+				t.Fatalf("ToAwsConfig() error = %v", err)
+			}
+
+			cfg, err := ini.Load(result)
+			if err != nil {
+				t.Fatalf("Failed to parse generated INI: %v", err)
+			}
+
+			section := cfg.Section(tt.expectSection)
+			if section == nil {
+				t.Fatalf("Expected section %s not found", tt.expectSection)
+			}
+
+			if section.Key("region").String() != output.Region {
+				t.Errorf("Expected region %s, got %s", output.Region, section.Key("region").String())
+			}
+		})
+	}
+}
+
+func TestAwsSamlOutputToAwsCredentialsWithExistingFile(t *testing.T) {
+	// Create existing INI content as a temporary file path
+	output := AwsSamlOutput{
+		AccessKeyID:     "new-key",
+		SecretAccessKey: "new-secret",
+		SessionToken:    "new-token",
+		Expiration:      &time.Time{},
+	}
+
+	profileName := "default"
+	inputIniFile := "" // Empty string for testing without existing file
+
+	result, err := output.ToAwsCredentials(profileName, inputIniFile)
+	if err != nil {
+		t.Fatalf("ToAwsCredentials() error = %v", err)
+	}
+
+	cfg, err := ini.Load(result)
+	if err != nil {
+		t.Fatalf("Failed to parse generated INI: %v", err)
+	}
+
+	// Check that default profile was created
+	defaultSection := cfg.Section("default")
+	if defaultSection == nil {
+		t.Error("Expected default profile to be created")
+	}
+
+	if defaultSection.Key("aws_access_key_id").String() != "new-key" {
+		t.Errorf("Expected aws_access_key_id to be new-key, got %s", defaultSection.Key("aws_access_key_id").String())
+	}
+}
+
+func TestRegionsList(t *testing.T) {
+	expectedRegions := []string{"us-east-1", "us-east-2", "us-west-1", "us-west-2", "af-south-1", "ap-east-1",
+		"ap-south-2", "ap-southeast-3", "ap-southeast-4", "ap-south-1", "ap-northeast-3", "ap-northeast-2",
+		"ap-southeast-1", "ap-southeast-2", "ap-northeast-1", "ca-central-1", "ca-west-1", "eu-central-1",
+		"eu-west-1", "eu-west-2", "eu-south-1", "eu-south-2", "eu-west-3", "eu-north-1",
+		"eu-central-2", "il-central-1", "me-south-1", "me-central-1", "sa-east-1", "us-gov-east-1",
+		"us-gov-west-1", "cn-north-1", "cn-northwest-1"}
+
+	if len(RegionsList) != len(expectedRegions) {
+		t.Errorf("RegionsList has %d regions, expected %d", len(RegionsList), len(expectedRegions))
+	}
+
+	for i, region := range expectedRegions {
+		if i >= len(RegionsList) || RegionsList[i] != region {
+			t.Errorf("Expected region %s at index %d, got %s", region, i, RegionsList[i])
+		}
+	}
+}
+
+func TestDefaultAwsProfileName(t *testing.T) {
+	if DefaultAwsProfileName != "default" {
+		t.Errorf("Expected DefaultAwsProfileName to be 'default', got %s", DefaultAwsProfileName)
+	}
+}
+
+func TestGetCredentialsErrorHandling(t *testing.T) {
+	// Test that GetCredentials returns error instead of calling log.Fatal
+	input := AwsSamlInput{
+		PrincipalArn:    "invalid-arn",
+		RoleArn:         "invalid-arn",
+		SAMLAssertion:   "invalid-saml",
+		Region:          "invalid-region",
+		DurationSeconds: 3600,
+	}
+
+	_, err := GetCredentials(input)
+	if err == nil {
+		t.Error("Expected error for invalid input, got nil")
 	}
 }

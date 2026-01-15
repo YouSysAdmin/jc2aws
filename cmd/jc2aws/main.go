@@ -425,14 +425,17 @@ func getCredentials(email, password, idpURL, mfa, principalARN, roleARN, region 
 		return cred, err
 	}
 
-	cred = aws.GetCredentials(aws.AwsSamlInput{
+	credResult, err := aws.GetCredentials(aws.AwsSamlInput{
 		PrincipalArn:    principalARN,
 		RoleArn:         roleARN,
 		SAMLAssertion:   saml,
 		DurationSeconds: int32(duration),
 		Region:          region,
 	})
-	return cred, nil
+	if err != nil {
+		return credResult, fmt.Errorf("failed to get AWS credentials: %w", err)
+	}
+	return credResult, nil
 }
 
 // Copy config.Account into App, preferring explicit CLI overrides already set in App.
