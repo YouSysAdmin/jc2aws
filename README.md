@@ -49,7 +49,7 @@ GLOBAL OPTIONS:
    --role-arn value                 AWS Role ARN (ex: arn:aws:iam::ACCOUNT-ID:role/admin) [$J2A_ROLE_ARN]
    --principal-arn value            AWS Identity provider ARN (ex: arn:aws:iam::ACCOUNT-ID:saml-provider/jumpcloud) [$J2A_PRINCIPAL_ARN]
    --region value, -r value         AWS region (ex: us-west-2) [$J2A_AWS_REGION]
-   --duration value, -d value       AWS credential expiration time (default: 3600) [$J2A_DURATION]
+   --duration value, -d value       AWS credential expiration time (default: 3600 if not set in config) [$J2A_DURATION]
    --account value, -a value        Account name present in a config [$J2A_ACCOUNT]
    --output-format value, -f value  Credential output format (ex: cli, env, cli-stdout, env-stdout) (default: "cli") [$J2A_OUTPUT_FORMAT]
    --aws-cli-profile-name value     AWS profile name used for store credentials [$J2A_AWS_CLI_PROFILE_NAME]
@@ -72,7 +72,7 @@ Regions:            ca-central-1, us-east-1
 E-mail              Present
 Password            Present
 MFA                 Present
-Duration:           3600
+Duration:           43200
 
 # You can set flags --account, --role-name / --role-arn, --region for skip some interactive step
 ```
@@ -104,6 +104,14 @@ jc2aws ... [-s | --shel] script.sh
 ```
 
 ## Config file
+
+Session duration (`session_duration`) is set in seconds per account. The priority order is:
+1. CLI flag `--duration` / env var `J2A_DURATION` (highest)
+2. Config file `session_duration` per account
+3. Default: `3600` (1 hour)
+
+**Note:** AWS STS allows session duration between 900 (15 min) and 43200 (12 hours) seconds, but the actual maximum depends on the IAM role's "Maximum session duration" setting.
+
 ```yaml
 # $HOME/.jc2aws.yaml
 ---
@@ -147,8 +155,8 @@ accounts:
       - "us-east-1"
     # Jumpcloud IDP URL
     jc_idp_url: https://sso.jumpcloud.com/saml2/my-prod
-    # Session Duration
-    session_timeout: 3600
+    # Session Duration (in seconds, default: 3600)
+    session_duration: 43200
 
   - name: my-stage
     description: "Staging account"
@@ -164,6 +172,6 @@ accounts:
       - "ca-central-1"
       - "us-east-1"
     jc_idp_url: https://sso.jumpcloud.com/saml2/my-stage
-    session_timeout: 3600
+    session_duration: 43200
 
 ```

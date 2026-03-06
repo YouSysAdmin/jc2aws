@@ -50,7 +50,6 @@ func main() {
 		ConfigFilePath: filepath.Join(UserHomeDir(), config.DefaultConfigFileName),
 		OutputFormat:   "cli", // cli, env, cli-stdout, env-stdout
 		Interactive:    false,
-		Duration:       3600,
 	}
 
 	app.cliInit()
@@ -196,9 +195,8 @@ func (app *App) cliInit() {
 			&cli.IntFlag{
 				Name:        "duration",
 				Aliases:     []string{"d"},
-				Usage:       "AWS credential expiration time",
+				Usage:       "AWS credential expiration time (default: 3600 if not set in config)",
 				EnvVars:     []string{"J2A_DURATION"},
-				Value:       app.Duration,
 				Destination: &app.Duration,
 			},
 			&cli.StringFlag{
@@ -447,9 +445,13 @@ func fromAccountToAppConfig(account config.Account, app *App) {
 	app.MfaToken = firstNonEmpty(app.MfaToken, account.MFASecret)
 	app.PrincipalARN = firstNonEmpty(app.PrincipalARN, account.AWSPrincipalArn)
 
-	// Duration: use app if non-zero, else account if non-zero
-	if app.Duration == 0 && account.Duration != 0 {
-		app.Duration = account.Duration
+	// Duration: use app (CLI flag) if non-zero, else account config if non-zero, else default 3600
+	if app.Duration == 0 {
+		if account.Duration != 0 {
+			app.Duration = account.Duration
+		} else {
+			app.Duration = 3600
+		}
 	}
 
 	// AWS CLI profile: prefer explicit flag; else account value; else account name

@@ -17,7 +17,7 @@ type Account struct {
 	AWSRoleArns     []AWSRole `yaml:"aws_role_arns"`
 	AWSRegions      []string  `yaml:"aws_regions"`
 	IdpURL          string    `yaml:"jc_idp_url"`
-	Duration        int       `yaml:"session_timeout"`
+	Duration        int       `yaml:"session_duration"`
 }
 
 // FindAWSRoleArnByName return account by account name from accounts list
