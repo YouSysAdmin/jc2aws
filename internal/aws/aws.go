@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"fmt"
-	"log"
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -67,7 +66,7 @@ func ToAwsSamlOutput(credentials *types.Credentials, region string) AwsSamlOutpu
 }
 
 // GetCredentials get credentials via assume role with SAML
-func GetCredentials(input AwsSamlInput) AwsSamlOutput {
+func GetCredentials(input AwsSamlInput) (AwsSamlOutput, error) {
 
 	awsInput, region := input.ToAwsInput()
 
@@ -85,10 +84,10 @@ func GetCredentials(input AwsSamlInput) AwsSamlOutput {
 
 	res, err := client.AssumeRoleWithSAML(ctx, &awsInput)
 	if err != nil {
-		log.Fatal(err)
+		return AwsSamlOutput{}, fmt.Errorf("failed to assume role with SAML: %w", err)
 	}
 
-	return ToAwsSamlOutput(res.Credentials, region)
+	return ToAwsSamlOutput(res.Credentials, region), nil
 }
 
 // ToEnv output AWS credentials as Environment variables
