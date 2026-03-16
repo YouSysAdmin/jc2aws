@@ -23,7 +23,7 @@ func NewConfig(path string) (conf *Config, err error) {
 	conf = &Config{}
 
 	if _, err = os.Stat(path); errors.Is(err, os.ErrNotExist) {
-		return conf, fmt.Errorf("config file %s not found", path)
+		return conf, fmt.Errorf("config file %s not found: %w", path, err)
 	}
 
 	file, err := os.ReadFile(path)
