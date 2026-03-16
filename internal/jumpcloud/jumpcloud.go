@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"log"
 	"net/http"
 	"time"
 
@@ -113,9 +112,8 @@ func (jc *JumpCloud) GetSaml() (samlResponse string, err error) {
 
 	resp, err := utils.Request(ctx, http.MethodGet, jc.IdpURL, nil, nil, jc.cookies, jc.MaxConnectionTimeout)
 	if err != nil {
-		log.Fatal(err)
+		return "", fmt.Errorf("failed to request IDP URL: %w", err)
 	}
-	defer resp.Body.Close()
 
 	samlResponse, err = utils.GetHTMLInputValue(resp, "SAMLResponse")
 	if err != nil {
