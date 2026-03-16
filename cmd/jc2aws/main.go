@@ -203,7 +203,7 @@ func (app *App) cliInit() {
 			&cli.IntFlag{
 				Name:        "duration",
 				Aliases:     []string{"d"},
-				Usage:       "AWS credential expiration time",
+				Usage:       "AWS credential expiration time (default: 3600 if not set in config)",
 				EnvVars:     []string{"J2A_DURATION"},
 				Value:       3600,
 				Destination: &app.Duration,
