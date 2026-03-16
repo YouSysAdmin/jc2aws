@@ -12,10 +12,9 @@ import (
 )
 
 const (
-	xsrfURL              = "https://console.jumpcloud.com/userconsole/xsrf"
-	authURL              = "https://console.jumpcloud.com/userconsole/auth"
-	MaxRequestTimeout    = 10
-	MaxConnectionTimeout = 5
+	xsrfURL           = "https://console.jumpcloud.com/userconsole/xsrf"
+	authURL           = "https://console.jumpcloud.com/userconsole/auth"
+	MaxRequestTimeout = 10
 )
 
 // xsfrResponse Jumpcloud XSRF respose structure
@@ -70,8 +69,7 @@ func New(email, password, idpURL, mfaToken string) (JumpCloud, error) {
 		IdpURL:   idpURL,
 		MFAToken: mfaToken,
 
-		MaxRequestTimeout:    MaxRequestTimeout,
-		MaxConnectionTimeout: MaxConnectionTimeout,
+		MaxRequestTimeout: MaxRequestTimeout,
 	}
 
 	return NewWithConfig(config)
@@ -83,10 +81,6 @@ func NewWithConfig(config JumpCloud) (JumpCloud, error) {
 	// Validate config and set default values
 	if config.Email == "" || config.Password == "" || config.IdpURL == "" {
 		return config, errors.New("email, password, idpurl can't be blank")
-	}
-
-	if config.MaxConnectionTimeout == 0 {
-		config.MaxConnectionTimeout = MaxConnectionTimeout
 	}
 
 	if config.MaxRequestTimeout == 0 {
@@ -110,7 +104,7 @@ func (jc *JumpCloud) GetSaml() (samlResponse string, err error) {
 	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(jc.MaxRequestTimeout)*time.Second)
 	defer cancel()
 
-	resp, err := utils.Request(ctx, http.MethodGet, jc.IdpURL, nil, nil, jc.cookies, jc.MaxConnectionTimeout)
+	resp, err := utils.Request(ctx, http.MethodGet, jc.IdpURL, nil, nil, jc.cookies)
 	if err != nil {
 		return "", fmt.Errorf("failed to request IDP URL: %w", err)
 	}
@@ -139,7 +133,7 @@ func (jc *JumpCloud) auth() error {
 	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(jc.MaxRequestTimeout)*time.Second)
 	defer cancel()
 
-	resp, err := utils.Request(ctx, http.MethodPost, authURL, authRequestData, headers, jc.cookies, jc.MaxRequestTimeout)
+	resp, err := utils.Request(ctx, http.MethodPost, authURL, authRequestData, headers, jc.cookies)
 	if err != nil {
 		return err
 	}
@@ -169,7 +163,7 @@ func (jc *JumpCloud) getXSRFToken() error {
 	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(jc.MaxRequestTimeout)*time.Second)
 	defer cancel()
 
-	resp, err := utils.Request(ctx, http.MethodGet, xsrfURL, nil, nil, nil, jc.MaxConnectionTimeout)
+	resp, err := utils.Request(ctx, http.MethodGet, xsrfURL, nil, nil, nil)
 	if err != nil {
 		return err
 	}

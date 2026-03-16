@@ -34,16 +34,7 @@ func ReadHTTPResponseBody(resp *http.Response) (body []byte, err error) {
 }
 
 // Request make HTTP request
-func Request(ctx context.Context, method string, url string, body []byte, headers http.Header, cookies []*http.Cookie, connectMaxWaitTime int) (resp *http.Response, err error) {
-	transport := &http.Transport{
-		DialContext: (&net.Dialer{
-			Timeout: time.Duration(connectMaxWaitTime) * time.Second,
-		}).DialContext,
-	}
-	client := http.Client{
-		Transport: transport,
-	}
-
+func Request(ctx context.Context, method string, url string, body []byte, headers http.Header, cookies []*http.Cookie) (resp *http.Response, err error) {
 	req, err := http.NewRequestWithContext(ctx, method, url, bytes.NewBuffer(body))
 	if err != nil {
 		return nil, fmt.Errorf("cannot create request: %s", err)
