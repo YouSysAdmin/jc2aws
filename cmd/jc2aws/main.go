@@ -433,13 +433,16 @@ func getCredentials(email, password, idpURL, mfa, principalARN, roleARN, region 
 		return cred, err
 	}
 
-	cred = aws.GetCredentials(aws.AwsSamlInput{
+	cred, err = aws.GetCredentials(aws.AwsSamlInput{
 		PrincipalArn:    principalARN,
 		RoleArn:         roleARN,
 		SAMLAssertion:   saml,
 		DurationSeconds: int32(duration),
 		Region:          region,
 	})
+	if err != nil {
+		return cred, err
+	}
 	return cred, nil
 }
 
@@ -478,15 +481,21 @@ func output(ctx *cli.Context, app *App) error {
 	switch app.OutputFormat {
 	case "cli": // store as aws-cli credentials
 		// ~/.aws/credentials
-		filePathCreds := filepath.Join(UserHomeDir(), ".aws", "credentials")
-		creds, _ := cred.ToAwsCredentials(app.AwsCliProfile, filePathCreds)
+		filePathCreds := filepath.Join(awsDir, "credentials")
+		creds, err := cred.ToAwsCredentials(app.AwsCliProfile, filePathCreds)
+		if err != nil {
+			return fmt.Errorf("failed to prepare AWS credentials: %w", err)
+		}
 		if err := os.WriteFile(filePathCreds, creds, 0600); err != nil {
 			return err
 		}
 
 		// ~/.aws/config
-		filePathConf := filepath.Join(UserHomeDir(), ".aws", "config")
-		conf, _ := cred.ToAwsConfig(app.AwsCliProfile, filePathConf)
+		filePathConf := filepath.Join(awsDir, "config")
+		conf, err := cred.ToAwsConfig(app.AwsCliProfile, filePathConf)
+		if err != nil {
+			return fmt.Errorf("failed to prepare AWS config: %w", err)
+		}
 		if err := os.WriteFile(filePathConf, conf, 0600); err != nil {
 			return err
 		}
