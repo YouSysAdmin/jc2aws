@@ -111,9 +111,12 @@ func (app *App) cliInit() {
 		EnableBashCompletion: true,
 		Before: func(cCtx *cli.Context) error {
 			cfgFile, err := config.NewConfig(app.ConfigFilePath)
-			if err != nil && !errors.Is(err, os.ErrNotExist) {
-				_, _ = fmt.Fprintf(cCtx.App.Writer, "\n# **Warning:**\n# Config file %s not found\n\n", app.ConfigFilePath)
-				return nil
+			if err != nil {
+				if errors.Is(err, os.ErrNotExist) {
+					_, _ = fmt.Fprintf(cCtx.App.Writer, "\n# **Warning:**\n# Config file %s not found\n\n", app.ConfigFilePath)
+					return nil
+				}
+				return fmt.Errorf("failed to load config file %s: %w", app.ConfigFilePath, err)
 			}
 			app.Config = cfgFile
 
