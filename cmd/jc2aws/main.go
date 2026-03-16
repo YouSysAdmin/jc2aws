@@ -18,7 +18,11 @@ import (
 
 // UserHomeDir retrieve current user home dir path
 var UserHomeDir = func() string {
-	path, _ := os.UserHomeDir()
+	path, err := os.UserHomeDir()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error: failed to determine home directory: %v\n", err)
+		os.Exit(1)
+	}
 	return path
 }
 
