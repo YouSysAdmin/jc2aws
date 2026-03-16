@@ -1,6 +1,7 @@
 package jumpcloud
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -9,7 +10,6 @@ import (
 	"time"
 
 	"github.com/yousysadmin/jc2aws/internal/utils"
-	"golang.org/x/net/context"
 )
 
 const (
