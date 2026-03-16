@@ -137,7 +137,7 @@ func (o *AwsSamlOutput) ToAwsCredentials(profileName string, inputIniFile string
 	return buf.Bytes(), err
 }
 
-// ToAwsCredentials output as AWS profile
+// ToAwsConfig output as AWS profile
 // If an input file exists, loading existing profiles and rewriting exist profile or adding a new
 func (o *AwsSamlOutput) ToAwsConfig(profileName string, inputIniFile string) ([]byte, error) {
 	var buf bytes.Buffer
