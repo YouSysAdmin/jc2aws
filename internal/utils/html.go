@@ -3,6 +3,7 @@ package utils
 import (
 	"fmt"
 	"net/http"
+	"strings"
 
 	"github.com/PuerkitoBio/goquery"
 )
@@ -19,7 +20,10 @@ func GetHTMLInputValue(response *http.Response, inputName string) (result string
 		return "", err
 	}
 
-	query := fmt.Sprintf("[name=\"%s\"]", inputName)
+	// Escape quotes and backslashes to prevent CSS selector injection
+	sanitized := strings.ReplaceAll(inputName, `\`, `\\`)
+	sanitized = strings.ReplaceAll(sanitized, `"`, `\"`)
+	query := fmt.Sprintf("[name=\"%s\"]", sanitized)
 	result, exist := doc.Find(query).Attr("value")
 	if !exist {
 		return "", fmt.Errorf("input name %s not found", inputName)
