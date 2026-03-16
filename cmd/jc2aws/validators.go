@@ -48,8 +48,7 @@ var validators = map[string]func(input string) error{
 		return nil
 	},
 	"region": func(input string) error {
-		idx := slices.IndexFunc(aws.RegionsList, func(c string) bool { return c == input })
-		if idx == -1 {
+		if !slices.Contains(aws.RegionsList, input) {
 			return errors.New("invalid region")
 		}
 		return nil
@@ -62,8 +61,7 @@ var validators = map[string]func(input string) error{
 	},
 	"output-format": func(input string) error {
 		formats := []string{"cli", "env", "cli-stdout", "env-stdout"}
-		idx := slices.IndexFunc(formats, func(c string) bool { return c == input })
-		if idx == -1 {
+		if !slices.Contains(formats, input) {
 			return errors.New("invalid output format")
 		}
 		return nil

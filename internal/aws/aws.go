@@ -54,7 +54,7 @@ func (i *AwsSamlInput) ToAwsInput() (s sts.AssumeRoleWithSAMLInput, r string) {
 	return s, r
 }
 
-// NewAwsSamlOutput converter from official AWS lib types to standart
+// ToAwsSamlOutput converter from official AWS lib types to standart
 func ToAwsSamlOutput(credentials *types.Credentials, region string) AwsSamlOutput {
 	return AwsSamlOutput{
 		AccessKeyID:     aws.ToString(credentials.AccessKeyId),
@@ -84,7 +84,7 @@ func GetCredentials(input AwsSamlInput) (AwsSamlOutput, error) {
 
 	res, err := client.AssumeRoleWithSAML(ctx, &awsInput)
 	if err != nil {
-		return AwsSamlOutput{}, err
+		return AwsSamlOutput{}, fmt.Errorf("failed to assume role with SAML: %w", err)
 	}
 
 	return ToAwsSamlOutput(res.Credentials, region), nil
@@ -136,7 +136,7 @@ func (o *AwsSamlOutput) ToAwsCredentials(profileName string, inputIniFile string
 	return buf.Bytes(), err
 }
 
-// ToAwsCredentials output as AWS profile
+// ToAwsConfig output as AWS profile
 // If an input file exists, loading existing profiles and rewriting exist profile or adding a new
 func (o *AwsSamlOutput) ToAwsConfig(profileName string, inputIniFile string) ([]byte, error) {
 	var buf bytes.Buffer

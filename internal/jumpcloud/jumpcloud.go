@@ -1,6 +1,7 @@
 package jumpcloud
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -8,7 +9,6 @@ import (
 	"time"
 
 	"github.com/yousysadmin/jc2aws/internal/utils"
-	"golang.org/x/net/context"
 )
 
 const (
@@ -112,9 +112,8 @@ func (jc *JumpCloud) GetSaml() (samlResponse string, err error) {
 
 	resp, err := utils.Request(ctx, http.MethodGet, jc.IdpURL, nil, nil, jc.cookies, jc.MaxConnectionTimeout)
 	if err != nil {
-		return "", fmt.Errorf("failed to get SAML response: %s", err)
+		return "", fmt.Errorf("failed to request IDP URL: %w", err)
 	}
-	defer resp.Body.Close()
 
 	samlResponse, err = utils.GetHTMLInputValue(resp, "SAMLResponse")
 	if err != nil {

@@ -90,9 +90,9 @@ jc2aws --email my-user@example.com \
 
 # Manual from config file
 jc2aws --account my-prod \
-       --role-name=admin \      
-       # or --role-arn for define custom role
+       --role-name=admin \
        --region ca-central-1
+# use --role-arn instead of --role-name for a custom role
 ```
 
 ### Running a shell or execute script
@@ -100,7 +100,7 @@ You can use flag `--shell` or `-s` for run shell with a got credentials or run l
 
 _If you do not specify the script name as arg, the interactive shell will be launched, otherwise, the specified script will be launched._
 ```shell
-jc2aws ... [-s | --shel] script.sh
+jc2aws ... [-s | --shell] script.sh
 ```
 
 ## Config file
@@ -131,9 +131,9 @@ accounts:
     # Description
     description: "Production account"
     # Jumpcloud user Email
-    Email: "user@example.com"
+    email: "user@example.com"
     # Jumpcloud user Password
-    Password: "MyVeryCoolPassword"
+    password: "MyVeryCoolPassword"
     # MFA Secret
     mfa_token_secret: "MyMFASecret"
     # Principal ARN

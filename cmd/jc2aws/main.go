@@ -18,7 +18,11 @@ import (
 
 // UserHomeDir retrieve current user home dir path
 var UserHomeDir = func() string {
-	path, _ := os.UserHomeDir()
+	path, err := os.UserHomeDir()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error: failed to determine home directory: %v\n", err)
+		os.Exit(1)
+	}
 	return path
 }
 
@@ -33,6 +37,7 @@ type App struct {
 	PrincipalARN   string // AWS Principal ARN
 	Region         string // AWS Region
 	Duration       int    // Credential expiration duration
+	DurationSet    bool   // Whether --duration was explicitly provided
 	ConfigFilePath string // Path to a config file
 	Interactive    bool   // Interactive mode flag
 	OutputFile     string // Credentials output file path
@@ -106,9 +111,12 @@ func (app *App) cliInit() {
 		EnableBashCompletion: true,
 		Before: func(cCtx *cli.Context) error {
 			cfgFile, err := config.NewConfig(app.ConfigFilePath)
-			if err != nil && !errors.Is(err, os.ErrNotExist) {
-				_, _ = fmt.Fprintf(cCtx.App.Writer, "\n# **Warning:**\n# Config file %s not found\n\n", app.ConfigFilePath)
-				return nil
+			if err != nil {
+				if errors.Is(err, os.ErrNotExist) {
+					_, _ = fmt.Fprintf(cCtx.App.Writer, "\n# **Warning:**\n# Config file %s not found\n\n", app.ConfigFilePath)
+					return nil
+				}
+				return fmt.Errorf("failed to load config file %s: %w", app.ConfigFilePath, err)
 			}
 			app.Config = cfgFile
 
@@ -197,6 +205,7 @@ func (app *App) cliInit() {
 				Aliases:     []string{"d"},
 				Usage:       "AWS credential expiration time (default: 3600 if not set in config)",
 				EnvVars:     []string{"J2A_DURATION"},
+				Value:       3600,
 				Destination: &app.Duration,
 			},
 			&cli.StringFlag{
@@ -230,6 +239,7 @@ func (app *App) cliInit() {
 			},
 		},
 		Action: func(cCtx *cli.Context) error {
+			app.DurationSet = cCtx.IsSet("duration")
 			if err := promptOptions(app); err != nil {
 				_ = cli.ShowCommandHelp(cCtx, cCtx.Command.Name)
 				return err
@@ -423,7 +433,7 @@ func getCredentials(email, password, idpURL, mfa, principalARN, roleARN, region 
 		return cred, err
 	}
 
-	credResult, err := aws.GetCredentials(aws.AwsSamlInput{
+	cred, err = aws.GetCredentials(aws.AwsSamlInput{
 		PrincipalArn:    principalARN,
 		RoleArn:         roleARN,
 		SAMLAssertion:   saml,
@@ -431,9 +441,9 @@ func getCredentials(email, password, idpURL, mfa, principalARN, roleARN, region 
 		Region:          region,
 	})
 	if err != nil {
-		return credResult, fmt.Errorf("failed to get AWS credentials: %w", err)
+		return cred, err
 	}
-	return credResult, nil
+	return cred, nil
 }
 
 // Copy config.Account into App, preferring explicit CLI overrides already set in App.
@@ -445,13 +455,9 @@ func fromAccountToAppConfig(account config.Account, app *App) {
 	app.MfaToken = firstNonEmpty(app.MfaToken, account.MFASecret)
 	app.PrincipalARN = firstNonEmpty(app.PrincipalARN, account.AWSPrincipalArn)
 
-	// Duration: use app (CLI flag) if non-zero, else account config if non-zero, else default 3600
-	if app.Duration == 0 {
-		if account.Duration != 0 {
-			app.Duration = account.Duration
-		} else {
-			app.Duration = 3600
-		}
+	// Duration: use account value if --duration was not explicitly provided
+	if !app.DurationSet && account.Duration != 0 {
+		app.Duration = account.Duration
 	}
 
 	// AWS CLI profile: prefer explicit flag; else account value; else account name
@@ -474,16 +480,28 @@ func output(ctx *cli.Context, app *App) error {
 
 	switch app.OutputFormat {
 	case "cli": // store as aws-cli credentials
+		// Ensure ~/.aws/ directory exists
+		awsDir := filepath.Join(UserHomeDir(), ".aws")
+		if err := os.MkdirAll(awsDir, 0700); err != nil {
+			return fmt.Errorf("failed to create directory %s: %w", awsDir, err)
+		}
+
 		// ~/.aws/credentials
-		filePathCreds := filepath.Join(UserHomeDir(), ".aws", "credentials")
-		creds, _ := cred.ToAwsCredentials(app.AwsCliProfile, filePathCreds)
+		filePathCreds := filepath.Join(awsDir, "credentials")
+		creds, err := cred.ToAwsCredentials(app.AwsCliProfile, filePathCreds)
+		if err != nil {
+			return fmt.Errorf("failed to prepare AWS credentials: %w", err)
+		}
 		if err := os.WriteFile(filePathCreds, creds, 0600); err != nil {
 			return err
 		}
 
 		// ~/.aws/config
-		filePathConf := filepath.Join(UserHomeDir(), ".aws", "config")
-		conf, _ := cred.ToAwsConfig(app.AwsCliProfile, filePathConf)
+		filePathConf := filepath.Join(awsDir, "config")
+		conf, err := cred.ToAwsConfig(app.AwsCliProfile, filePathConf)
+		if err != nil {
+			return fmt.Errorf("failed to prepare AWS config: %w", err)
+		}
 		if err := os.WriteFile(filePathConf, conf, 0600); err != nil {
 			return err
 		}

@@ -35,6 +35,15 @@ func ReadHTTPResponseBody(resp *http.Response) (body []byte, err error) {
 
 // Request make HTTP request
 func Request(ctx context.Context, method string, url string, body []byte, headers http.Header, cookies []*http.Cookie, connectMaxWaitTime int) (resp *http.Response, err error) {
+	transport := &http.Transport{
+		DialContext: (&net.Dialer{
+			Timeout: time.Duration(connectMaxWaitTime) * time.Second,
+		}).DialContext,
+	}
+	client := http.Client{
+		Transport: transport,
+	}
+
 	req, err := http.NewRequestWithContext(ctx, method, url, bytes.NewBuffer(body))
 	if err != nil {
 		return nil, fmt.Errorf("cannot create request: %s", err)
@@ -45,7 +54,9 @@ func Request(ctx context.Context, method string, url string, body []byte, header
 	}
 
 	for name, values := range headers {
-		req.Header.Add(name, values[0])
+		for _, v := range values {
+			req.Header.Add(name, v)
+		}
 	}
 
 	resp, err = httpClient.Do(req)
