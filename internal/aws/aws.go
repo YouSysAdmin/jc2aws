@@ -55,7 +55,7 @@ func (i *AwsSamlInput) ToAwsInput() (s sts.AssumeRoleWithSAMLInput, r string) {
 	return s, r
 }
 
-// NewAwsSamlOutput converter from official AWS lib types to standart
+// ToAwsSamlOutput converter from official AWS lib types to standart
 func ToAwsSamlOutput(credentials *types.Credentials, region string) AwsSamlOutput {
 	return AwsSamlOutput{
 		AccessKeyID:     aws.ToString(credentials.AccessKeyId),
