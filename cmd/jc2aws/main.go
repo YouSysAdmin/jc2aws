@@ -480,6 +480,12 @@ func output(ctx *cli.Context, app *App) error {
 
 	switch app.OutputFormat {
 	case "cli": // store as aws-cli credentials
+		// Ensure ~/.aws/ directory exists
+		awsDir := filepath.Join(UserHomeDir(), ".aws")
+		if err := os.MkdirAll(awsDir, 0700); err != nil {
+			return fmt.Errorf("failed to create directory %s: %w", awsDir, err)
+		}
+
 		// ~/.aws/credentials
 		filePathCreds := filepath.Join(awsDir, "credentials")
 		creds, err := cred.ToAwsCredentials(app.AwsCliProfile, filePathCreds)
