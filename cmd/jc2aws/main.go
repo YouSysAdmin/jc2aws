@@ -37,6 +37,7 @@ type App struct {
 	PrincipalARN   string // AWS Principal ARN
 	Region         string // AWS Region
 	Duration       int    // Credential expiration duration
+	DurationSet    bool   // Whether --duration was explicitly provided
 	ConfigFilePath string // Path to a config file
 	Interactive    bool   // Interactive mode flag
 	OutputFile     string // Credentials output file path
@@ -54,7 +55,6 @@ func main() {
 		ConfigFilePath: filepath.Join(UserHomeDir(), config.DefaultConfigFileName),
 		OutputFormat:   "cli", // cli, env, cli-stdout, env-stdout
 		Interactive:    false,
-		Duration:       3600,
 	}
 
 	app.cliInit()
@@ -205,7 +205,7 @@ func (app *App) cliInit() {
 				Aliases:     []string{"d"},
 				Usage:       "AWS credential expiration time",
 				EnvVars:     []string{"J2A_DURATION"},
-				Value:       app.Duration,
+				Value:       3600,
 				Destination: &app.Duration,
 			},
 			&cli.StringFlag{
@@ -239,6 +239,7 @@ func (app *App) cliInit() {
 			},
 		},
 		Action: func(cCtx *cli.Context) error {
+			app.DurationSet = cCtx.IsSet("duration")
 			if err := promptOptions(app); err != nil {
 				_ = cli.ShowCommandHelp(cCtx, cCtx.Command.Name)
 				return err
@@ -451,8 +452,8 @@ func fromAccountToAppConfig(account config.Account, app *App) {
 	app.MfaToken = firstNonEmpty(app.MfaToken, account.MFASecret)
 	app.PrincipalARN = firstNonEmpty(app.PrincipalARN, account.AWSPrincipalArn)
 
-	// Duration: use app if non-zero, else account if non-zero
-	if app.Duration == 0 && account.Duration != 0 {
+	// Duration: use account value if --duration was not explicitly provided
+	if !app.DurationSet && account.Duration != 0 {
 		app.Duration = account.Duration
 	}
 
