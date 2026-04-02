@@ -1,58 +1,65 @@
 # $HOME/.jc2aws.yaml
 ---
-# default login for all accounts if an account is not set separately
+# Default login email for all accounts (used when an account does not set its own)
 default_email: "my-user@example.com"
 
-# default password for all accounts if an account is not set separately
+# Default password for all accounts (used when an account does not set its own)
 default_password: "MyVeryCoolPassword"
 
-# default MFA secret for all accounts if an account is not set separately
-default_mfa_token_secret: "MyMFASecret"
+# Default MFA TOTP secret for all accounts (used when an account does not set its own)
+#default_mfa_token_secret: "MyMFASecret"
+
+# Disable automatic update check on startup
+#no_update_check: true
+
+# Default credential output format (cli, env, cli-stdout, env-stdout, shell)
+#default_format: "cli"
+
+# TUI behavior after writing file-based credentials (cli, env formats)
+# Options: "exit" (default), "menu" (show Run again/Quit menu), "wait" (press any key)
+#tui_done_action: "exit"
 
 # AWS accounts configs
 accounts:
-  # Name
   - name: my-prod
-    # Description
     description: "Production account"
-    # Jumpcloud user Email
-    Email: "my-user@example.com"
-    # Jumpcloud user Password
-    Password: "MyVeryCoolPassword"
-    # MFA Secret
+    # Override the AWS CLI profile name (defaults to account name)
+    aws_cli_profile: "prod"
+    # JumpCloud user email (overrides default_email for this account)
+    email: "my-user@example.com"
+    # JumpCloud user password (overrides default_password for this account)
+    password: "MyVeryCoolPassword"
+    # MFA TOTP secret (overrides default_mfa_token_secret for this account)
     mfa_token_secret: "MyMFASecret"
-    # Principal ARN
-    aws_principal_arn: "arn:aws:iam::0000000000:saml-provider/jumpcloud"
-    # Roles list
+    # SAML provider principal ARN
+    aws_principal_arn: "arn:aws:iam::000000000000:saml-provider/jumpcloud"
+    # IAM roles available for this account
     aws_role_arns:
-      # Name
       - name: admin
-        # Description
         description: "AWS Role with full access"
-        # ARN
-        arn: "arn:aws:iam::0000000000:role/jumpcloud-admin"
+        arn: "arn:aws:iam::000000000000:role/jumpcloud-admin"
       - name: read-only
         description: "AWS Role with read-only access"
-        arn: "arn:aws:iam::0000000000:role/jumpcloud-readonly"
-    # Regions list
+        arn: "arn:aws:iam::000000000000:role/jumpcloud-readonly"
+    # AWS regions available for this account
     aws_regions:
       - "ca-central-1"
       - "us-east-1"
-    # Jumpcloud IDP URL
+    # JumpCloud IDP URL
     jc_idp_url: https://sso.jumpcloud.com/saml2/my-prod
-    # Session Duration (in seconds, default: 3600)
+    # STS session duration in seconds (default: 3600)
     session_duration: 43200
 
   - name: my-stage
     description: "Staging account"
-    aws_principal_arn: "arn:aws:iam::0000000000:saml-provider/jumpcloud"
+    aws_principal_arn: "arn:aws:iam::000000000000:saml-provider/jumpcloud"
     aws_role_arns:
       - name: admin
         description: "AWS Role with full access"
-        arn: "arn:aws:iam::0000000000:role/jumpcloud-admin"
+        arn: "arn:aws:iam::000000000000:role/jumpcloud-admin"
       - name: read-only
         description: "AWS Role with read-only access"
-        arn: "arn:aws:iam::0000000000:role/jumpcloud-readonly"
+        arn: "arn:aws:iam::000000000000:role/jumpcloud-readonly"
     aws_regions:
       - "ca-central-1"
       - "us-east-1"

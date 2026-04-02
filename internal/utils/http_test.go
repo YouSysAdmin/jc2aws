@@ -65,76 +65,70 @@ func TestReadHTTPResponseBody(t *testing.T) {
 
 func TestRequest(t *testing.T) {
 	tests := []struct {
-		name               string
-		method             string
-		url                string
-		body               []byte
-		headers            http.Header
-		cookies            []*http.Cookie
-		connectMaxWaitTime int
-		expectedStatus     int
-		expectedBody       string
-		wantErr            bool
+		name           string
+		method         string
+		url            string
+		body           []byte
+		headers        http.Header
+		cookies        []*http.Cookie
+		expectedStatus int
+		expectedBody   string
+		wantErr        bool
 	}{
 		{
-			name:               "GET request",
-			method:             "GET",
-			url:                "/test",
-			body:               nil,
-			headers:            nil,
-			cookies:            nil,
-			connectMaxWaitTime: 30,
-			expectedStatus:     http.StatusOK,
-			expectedBody:       "GET response",
-			wantErr:            false,
+			name:           "GET request",
+			method:         "GET",
+			url:            "/test",
+			body:           nil,
+			headers:        nil,
+			cookies:        nil,
+			expectedStatus: http.StatusOK,
+			expectedBody:   "GET response",
+			wantErr:        false,
 		},
 		{
-			name:               "POST request with body",
-			method:             "POST",
-			url:                "/test",
-			body:               []byte("test payload"),
-			headers:            map[string][]string{"Content-Type": {"application/json"}},
-			cookies:            nil,
-			connectMaxWaitTime: 30,
-			expectedStatus:     http.StatusOK,
-			expectedBody:       "POST response",
-			wantErr:            false,
+			name:           "POST request with body",
+			method:         "POST",
+			url:            "/test",
+			body:           []byte("test payload"),
+			headers:        map[string][]string{"Content-Type": {"application/json"}},
+			cookies:        nil,
+			expectedStatus: http.StatusOK,
+			expectedBody:   "POST response",
+			wantErr:        false,
 		},
 		{
-			name:               "request with headers",
-			method:             "GET",
-			url:                "/test",
-			body:               nil,
-			headers:            map[string][]string{"Authorization": {"Bearer token123"}},
-			cookies:            nil,
-			connectMaxWaitTime: 30,
-			expectedStatus:     http.StatusOK,
-			expectedBody:       "Authorized response",
-			wantErr:            false,
+			name:           "request with headers",
+			method:         "GET",
+			url:            "/test",
+			body:           nil,
+			headers:        map[string][]string{"Authorization": {"Bearer token123"}},
+			cookies:        nil,
+			expectedStatus: http.StatusOK,
+			expectedBody:   "Authorized response",
+			wantErr:        false,
 		},
 		{
-			name:               "request with cookies",
-			method:             "GET",
-			url:                "/test",
-			body:               nil,
-			headers:            nil,
-			cookies:            []*http.Cookie{{Name: "session", Value: "abc123"}},
-			connectMaxWaitTime: 30,
-			expectedStatus:     http.StatusOK,
-			expectedBody:       "Cookie response",
-			wantErr:            false,
+			name:           "request with cookies",
+			method:         "GET",
+			url:            "/test",
+			body:           nil,
+			headers:        nil,
+			cookies:        []*http.Cookie{{Name: "session", Value: "abc123"}},
+			expectedStatus: http.StatusOK,
+			expectedBody:   "Cookie response",
+			wantErr:        false,
 		},
 		{
-			name:               "timeout error",
-			method:             "GET",
-			url:                "/slow",
-			body:               nil,
-			headers:            nil,
-			cookies:            nil,
-			connectMaxWaitTime: 1,
-			expectedStatus:     200, // Server will respond
-			expectedBody:       "slow response",
-			wantErr:            false, // Our HTTP client doesn't enforce connect timeout
+			name:           "timeout via context",
+			method:         "GET",
+			url:            "/slow",
+			body:           nil,
+			headers:        nil,
+			cookies:        nil,
+			expectedStatus: 200,
+			expectedBody:   "slow response",
+			wantErr:        false,
 		},
 	}
 
@@ -182,7 +176,7 @@ func TestRequest(t *testing.T) {
 			defer server.Close()
 
 			ctx := context.Background()
-			resp, err := Request(ctx, tt.method, server.URL+tt.url, tt.body, tt.headers, tt.cookies, tt.connectMaxWaitTime)
+			resp, err := Request(ctx, tt.method, server.URL+tt.url, tt.body, tt.headers, tt.cookies)
 
 			if (err != nil) != tt.wantErr {
 				t.Errorf("Request() error = %v, wantErr %v", err, tt.wantErr)
@@ -218,7 +212,7 @@ func TestRequestContextCancellation(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
 	defer cancel()
 
-	_, err := Request(ctx, "GET", server.URL, nil, nil, nil, 30)
+	_, err := Request(ctx, "GET", server.URL, nil, nil, nil)
 	if err == nil {
 		t.Error("Expected context cancellation error, got nil")
 	}
@@ -231,7 +225,7 @@ func TestRequestContextCancellation(t *testing.T) {
 func TestRequestInvalidURL(t *testing.T) {
 	ctx := context.Background()
 
-	_, err := Request(ctx, "GET", "://invalid-url", nil, nil, nil, 30)
+	_, err := Request(ctx, "GET", "://invalid-url", nil, nil, nil)
 	if err == nil {
 		t.Error("Expected error for invalid URL, got nil")
 	}

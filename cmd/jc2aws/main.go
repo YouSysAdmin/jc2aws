@@ -3,555 +3,370 @@ package main
 import (
 	"errors"
 	"fmt"
-	"io"
 	"os"
-	"os/exec"
 	"path/filepath"
+	"strings"
 
-	"github.com/urfave/cli/v2"
-	"github.com/yousysadmin/jc2aws/internal/aws"
+	tea "github.com/charmbracelet/bubbletea"
+	"github.com/spf13/cobra"
+	"github.com/spf13/viper"
+
 	"github.com/yousysadmin/jc2aws/internal/config"
-	"github.com/yousysadmin/jc2aws/internal/jumpcloud"
-	"github.com/yousysadmin/jc2aws/internal/totp"
 	"github.com/yousysadmin/jc2aws/pkg"
+	"github.com/yousysadmin/jc2aws/pkg/update"
 )
 
-// UserHomeDir retrieve current user home dir path
-var UserHomeDir = func() string {
-	path, err := os.UserHomeDir()
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error: failed to determine home directory: %v\n", err)
-		os.Exit(1)
-	}
-	return path
+// appConfig holds resolved configuration and the parsed config file.
+// Simple flags (interactive, update, shellScript, configFilePath) live here
+// because they don't participate in the account-defaults resolution.
+// All other values (email, password, region, etc.) are read from Viper
+// with account-level fallback.
+type appConfig struct {
+	configFilePath string
+	shellScript    string
+	interactive    bool
+	update         bool
+
+	config *config.Config
 }
 
-type App struct {
-	Email          string // JumpCloud Email
-	Password       string // JumpCloud Password
-	MfaToken       string // JumpCloud MFA Token or MFA Secret
-	IdpURL         string // JumpCloud IDP URL
-	AccountName    string // AWS account name in config file (interactive and non-interactive mode)
-	RoleName       string // AWS Role name in config file
-	RoleARN        string // AWS role ARN
-	PrincipalARN   string // AWS Principal ARN
-	Region         string // AWS Region
-	Duration       int    // Credential expiration duration
-	DurationSet    bool   // Whether --duration was explicitly provided
-	ConfigFilePath string // Path to a config file
-	Interactive    bool   // Interactive mode flag
-	OutputFile     string // Credentials output file path
-	OutputFormat   string // Credential output format
-	AwsCliProfile  string // AWS CLI profile name (for `profile` output format)
-	Shell          bool   // Shell flag
+// ---------------------------------------------------------------------------
+// Viper key constants
+// ---------------------------------------------------------------------------
 
-	Config *config.Config
-	Cli    *cli.App
-}
+const (
+	keyEmail         = "email"
+	keyPassword      = "password"
+	keyMFA           = "mfa"
+	keyIdpURL        = "idp-url"
+	keyRoleName      = "role-name"
+	keyRoleARN       = "role-arn"
+	keyPrincipalARN  = "principal-arn"
+	keyRegion        = "region"
+	keyDuration      = "duration"
+	keyAccount       = "account"
+	keyOutputFormat  = "output-format"
+	keyAwsCliProfile = "aws-cli-profile-name"
+	keyNoUpdateCheck = "no-update-check"
+	keyShell         = "shell"
+	keyShellScript   = "shell-script"
+	keyInteractive   = "interactive"
+	keyConfig        = "config"
+	keyTUIDoneAction = "tui-done-action"
+)
 
-func main() {
-	app := App{
-		Config:         &config.Config{},
-		ConfigFilePath: filepath.Join(UserHomeDir(), config.DefaultConfigFileName),
-		OutputFormat:   "cli", // cli, env, cli-stdout, env-stdout
-		Interactive:    false,
+// ---------------------------------------------------------------------------
+// Account-aware value resolution
+// ---------------------------------------------------------------------------
+
+// resolveString returns the Viper value for the given key if it was explicitly
+// set (flag, env var, or config-file default).
+// Otherwise, it falls back to the account value.
+// This keeps account defaults at the lowest priority without mutating Viper state.
+func resolveString(key string, acc *config.Account) string {
+	if viper.IsSet(key) {
+		return viper.GetString(key)
 	}
-
-	app.cliInit()
-	if err := app.Cli.Run(os.Args); err != nil {
-		fmt.Println("Error: ", err)
-		os.Exit(1)
+	if acc == nil {
+		return ""
 	}
-}
-
-// Helpers
-func writeBytes(w io.Writer, b []byte) error {
-	_, err := w.Write(b)
-	return err
-}
-
-func promptIfEmpty(interactive bool, cur *string, label, key, typ string, requiredErr error) error {
-	if *cur != "" {
-		return nil
-	}
-	if !interactive {
-		return requiredErr
-	}
-	val, err := PromptSimple(label, key, typ)
-	if err != nil {
-		return err
-	}
-	*cur = val
-	return nil
-}
-
-func validateIfSet(v string, validator func(string) error) error {
-	if v == "" || validator == nil {
-		return nil
-	}
-	return validator(v)
-}
-
-func firstNonEmpty(vals ...string) string {
-	for _, v := range vals {
-		if v != "" {
-			return v
+	switch key {
+	case keyEmail:
+		return acc.Email
+	case keyPassword:
+		return acc.Password
+	case keyMFA:
+		return acc.MFASecret
+	case keyIdpURL:
+		return acc.IdpURL
+	case keyPrincipalARN:
+		return acc.AWSPrincipalArn
+	case keyAwsCliProfile:
+		if acc.AwsCliProfile != "" {
+			return acc.AwsCliProfile
 		}
+		return acc.Name
 	}
 	return ""
 }
 
-// CLI init
-func (app *App) cliInit() {
-	app.Cli = &cli.App{
-		Name:                 "",
-		Usage:                "Get AWS credentials",
-		UsageText:            "Get temporarily AWS credentials via Jumpcloud (SAML)",
-		Version:              pkg.Version,
-		EnableBashCompletion: true,
-		Before: func(cCtx *cli.Context) error {
-			cfgFile, err := config.NewConfig(app.ConfigFilePath)
+// defaultDuration default credential duration in seconds.
+const defaultDuration = 3600
+
+// resolveDuration returns the duration from user provided via flags if set, otherwise
+// falls back to the account's duration if set, then the default.
+func resolveDuration(acc *config.Account) int {
+	if viper.IsSet(keyDuration) {
+		return viper.GetInt(keyDuration)
+	}
+	if acc != nil && acc.Duration != 0 {
+		return acc.Duration
+	}
+	if d := viper.GetInt(keyDuration); d != 0 {
+		return d
+	}
+	return defaultDuration
+}
+
+// ---------------------------------------------------------------------------
+// CLI Entrypoint
+// ---------------------------------------------------------------------------
+
+func main() {
+	cfg := &appConfig{
+		config: &config.Config{},
+	}
+
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error: failed to determine home directory: %v\n", err)
+		os.Exit(1)
+	}
+	cfg.configFilePath = filepath.Join(homeDir, config.DefaultConfigFileName)
+
+	// Viper setup
+	viper.SetEnvPrefix("J2A")
+	viper.SetEnvKeyReplacer(strings.NewReplacer("-", "_"))
+	viper.AutomaticEnv()
+
+	// Explicit env var bindings for names that don't match the flag -> env
+	// for backward compatibly.
+	viper.BindEnv(keyRegion, "J2A_REGION", "J2A_AWS_REGION")
+	viper.BindEnv(keyConfig, "J2A_CONFIG")
+
+	rootCmd := &cobra.Command{
+		Use:     filepath.Base(os.Args[0]), //"jc2aws-tui",
+		Short:   "Get AWS credentials via JumpCloud SSO",
+		Long:    "Obtaining temporary AWS credentials via JumpCloud SAML authentication.",
+		Version: pkg.Version,
+		PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
+			// Get config file path from Viper
+			cfg.configFilePath = viper.GetString(keyConfig)
+
+			cfgFile, err := config.NewConfig(cfg.configFilePath)
 			if err != nil {
 				if errors.Is(err, os.ErrNotExist) {
-					_, _ = fmt.Fprintf(cCtx.App.Writer, "\n# **Warning:**\n# Config file %s not found\n\n", app.ConfigFilePath)
+					fmt.Fprintf(os.Stderr, "Warning: Config file %s not found\n", cfg.configFilePath)
 					return nil
 				}
-				return fmt.Errorf("failed to load config file %s: %w", app.ConfigFilePath, err)
+				return fmt.Errorf("failed to load config file %s: %w", cfg.configFilePath, err)
 			}
-			app.Config = cfgFile
+			cfg.config = cfgFile
 
-			if len(app.Config.Accounts) <= 0 {
-				_, _ = fmt.Fprintf(cCtx.App.Writer, "\n# **Warning:**\n# Not found any accounts in the config file %s\n\n", app.ConfigFilePath)
-				return nil
+			// NOTE: Do NOT use `viper.SetDefault` for `output-format` and `duration`.
+			// Cobra flag defaults (set via `flags.StringP` / `flags.IntP`) are
+			// picked up by `viper.BindPFlags` but do NOT make `viper.IsSet()` true.
+
+			// Feed config-file top-level defaults into Viper via Set so they
+			// make viper.IsSet() return true and take priority over account
+			// defaults in resolveString/resolveDuration. The !IsSet guard
+			// ensures flags and env vars (higher priority) are not overwritten.
+			if cfgFile.DefaultEmail != "" && !viper.IsSet(keyEmail) {
+				viper.Set(keyEmail, cfgFile.DefaultEmail)
+			}
+			if cfgFile.DefaultPassword != "" && !viper.IsSet(keyPassword) {
+				viper.Set(keyPassword, cfgFile.DefaultPassword)
+			}
+			if cfgFile.DefaultMFATokenSecret != "" && !viper.IsSet(keyMFA) {
+				viper.Set(keyMFA, cfgFile.DefaultMFATokenSecret)
+			}
+			if cfgFile.NoUpdateCheck && !viper.IsSet(keyNoUpdateCheck) {
+				viper.Set(keyNoUpdateCheck, true)
+			}
+			if cfgFile.DefaultFormat != "" && !viper.IsSet(keyOutputFormat) {
+				viper.Set(keyOutputFormat, cfgFile.DefaultFormat)
+			}
+			if cfgFile.TUIDoneAction != "" && !viper.IsSet(keyTUIDoneAction) {
+				viper.Set(keyTUIDoneAction, cfgFile.TUIDoneAction)
 			}
 
 			return nil
 		},
-
-		Flags: []cli.Flag{
-			&cli.StringFlag{
-				Name:        "config",
-				Aliases:     []string{"c"},
-				Usage:       "Path to a config file",
-				EnvVars:     []string{"J2A_CONFIG"},
-				Value:       app.ConfigFilePath,
-				Destination: &app.ConfigFilePath,
-			},
-			&cli.BoolFlag{
-				Name:        "interactive",
-				Aliases:     []string{"i"},
-				Usage:       "Turn on interactive mode",
-				EnvVars:     []string{"J2A_INTERACTIVE"},
-				Value:       app.Interactive,
-				Destination: &app.Interactive,
-			},
-			&cli.StringFlag{
-				Name:        "email",
-				Aliases:     []string{"e"},
-				Usage:       "Jumpcloud user email",
-				EnvVars:     []string{"J2A_EMAIL"},
-				Value:       app.Config.DefaultEmail,
-				Destination: &app.Email,
-			},
-			&cli.StringFlag{
-				Name:        "password",
-				Aliases:     []string{"p"},
-				Usage:       "Jumpcloud user password",
-				EnvVars:     []string{"J2A_PASSWORD"},
-				Value:       app.Config.DefaultPassword,
-				Destination: &app.Password,
-			},
-			&cli.StringFlag{
-				Name:        "mfa",
-				Aliases:     []string{"m"},
-				Usage:       "Jumpcloud user MFA token",
-				EnvVars:     []string{"J2A_MFA"},
-				Value:       app.Config.DefaultMFATokenSecret,
-				Destination: &app.MfaToken,
-			},
-			&cli.StringFlag{
-				Name:        "idp-url",
-				Usage:       "Jumpcloud IDP URL (ex: https://sso.jumpcloud.com/saml2/my-aws-prod)",
-				EnvVars:     []string{"J2A_IDP_URL"},
-				Destination: &app.IdpURL,
-			},
-			&cli.StringFlag{
-				Name:        "role-name",
-				Usage:       "AWS Role name (indicated in the config file)",
-				EnvVars:     []string{"J2A_ROLE_NAME"},
-				Destination: &app.RoleName,
-			},
-			&cli.StringFlag{
-				Name:        "role-arn",
-				Usage:       "AWS Role ARN (ex: arn:aws:iam::ACCOUNT-ID:role/admin)",
-				EnvVars:     []string{"J2A_ROLE_ARN"},
-				Destination: &app.RoleARN,
-			},
-			&cli.StringFlag{
-				Name:        "principal-arn",
-				Usage:       "AWS Identity provider ARN (ex: arn:aws:iam::ACCOUNT-ID:saml-provider/jumpcloud)",
-				EnvVars:     []string{"J2A_PRINCIPAL_ARN"},
-				Destination: &app.PrincipalARN,
-			},
-			&cli.StringFlag{
-				Name:        "region",
-				Aliases:     []string{"r"},
-				Usage:       "AWS region (ex: us-west-2)",
-				EnvVars:     []string{"J2A_AWS_REGION"},
-				Destination: &app.Region,
-			},
-			&cli.IntFlag{
-				Name:        "duration",
-				Aliases:     []string{"d"},
-				Usage:       "AWS credential expiration time (default: 3600 if not set in config)",
-				EnvVars:     []string{"J2A_DURATION"},
-				Value:       3600,
-				Destination: &app.Duration,
-			},
-			&cli.StringFlag{
-				Name:        "account",
-				Aliases:     []string{"a"},
-				Usage:       "Account name present in a config",
-				EnvVars:     []string{"J2A_ACCOUNT"},
-				Destination: &app.AccountName,
-			},
-			&cli.StringFlag{
-				Name:        "output-format",
-				Aliases:     []string{"f"},
-				Usage:       "Credential output format (ex: cli, env, cli-stdout, env-stdout)",
-				EnvVars:     []string{"J2A_OUTPUT_FORMAT"},
-				Value:       app.OutputFormat,
-				Destination: &app.OutputFormat,
-			},
-			&cli.StringFlag{
-				Name:        "aws-cli-profile-name",
-				Usage:       "AWS profile name used for store credentials",
-				EnvVars:     []string{"J2A_AWS_CLI_PROFILE_NAME"},
-				Destination: &app.AwsCliProfile,
-			},
-			&cli.BoolFlag{
-				Name:        "shell",
-				Aliases:     []string{"s"},
-				Usage:       "Launch a shell with AWS credentials",
-				EnvVars:     []string{"J2A_SHELL"},
-				Value:       false,
-				Destination: &app.Shell,
-			},
-		},
-		Action: func(cCtx *cli.Context) error {
-			app.DurationSet = cCtx.IsSet("duration")
-			if err := promptOptions(app); err != nil {
-				_ = cli.ShowCommandHelp(cCtx, cCtx.Command.Name)
-				return err
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if cfg.update {
+				return update.DownloadAndReplace(pkg.Version, os.Stdout)
 			}
 
-			if app.Shell {
-				return shell(cCtx, app)
+			// -s / --shell is a convenience alias for --output-format=shell
+			if cmd.Flags().Changed(keyShell) {
+				viper.Set(keyOutputFormat, "shell")
 			}
-			return output(cCtx, app)
+
+			// --shell-script implies shell output format
+			if cmd.Flags().Changed(keyShellScript) {
+				cfg.shellScript = viper.GetString(keyShellScript)
+				viper.Set(keyOutputFormat, "shell")
+			}
+
+			// J2A_SHELL env var: treat as output-format=shell (backward compat)
+			if v := os.Getenv("J2A_SHELL"); v == "true" || v == "1" {
+				viper.Set(keyOutputFormat, "shell")
+			}
+
+			// J2A_SHELL_SCRIPT env var: set shell script path (implies shell format)
+			if v := os.Getenv("J2A_SHELL_SCRIPT"); v != "" {
+				cfg.shellScript = v
+				viper.Set(keyOutputFormat, "shell")
+			}
+
+			cfg.interactive = viper.GetBool(keyInteractive)
+
+			if cfg.interactive {
+				return runInteractive(cfg)
+			}
+			return runHeadless(cfg)
 		},
+	}
+
+	flags := rootCmd.Flags()
+	flags.StringVarP(&cfg.configFilePath, keyConfig, "c", cfg.configFilePath, "Path to config file")
+	flags.StringP(keyEmail, "e", "", "JumpCloud user email")
+	flags.StringP(keyPassword, "p", "", "JumpCloud user password")
+	flags.StringP(keyMFA, "m", "", "JumpCloud MFA token or secret")
+	flags.String(keyIdpURL, "", "JumpCloud IDP URL")
+	flags.String(keyRoleName, "", "AWS Role name (from config)")
+	flags.String(keyRoleARN, "", "AWS Role ARN")
+	flags.String(keyPrincipalARN, "", "AWS Identity provider ARN")
+	flags.StringP(keyRegion, "r", "", "AWS region")
+	flags.IntP(keyDuration, "d", 3600, "AWS credential expiration time in seconds")
+	flags.StringP(keyAccount, "a", "", "Account name from config")
+	flags.StringP(keyOutputFormat, "f", "cli", "Credential output format (cli, env, cli-stdout, env-stdout, shell)")
+	flags.String(keyAwsCliProfile, "", "AWS CLI profile name")
+
+	// -s / --shell is a convenience alias for --output-format=shell (backward compat).
+	flags.BoolP(keyShell, "s", false, "Launch a shell with AWS credentials (alias for -f shell)")
+	flags.String(keyShellScript, "", "Path to shell script to run with AWS credentials (implies -s)")
+	flags.BoolP(keyInteractive, "i", false, "Launch interactive TUI wizard")
+	flags.BoolVar(&cfg.update, "update", false, "Download and install the latest release")
+	flags.Bool(keyNoUpdateCheck, false, "Disable automatic update check")
+
+	// Bind all flags to Viper
+	viper.BindPFlags(flags)
+
+	if err := rootCmd.Execute(); err != nil {
+		os.Exit(1)
 	}
 }
 
-// Input prompting and validation
-func promptOptions(app *App) error {
-	// Resolve account
-	account, err := resolveAccount(app)
+// runInteractive launches the interactive TUI wizard.
+func runInteractive(cfg *appConfig) error {
+	m := newTuiModel(cfg)
+	p := tea.NewProgram(m, tea.WithAltScreen())
+
+	finalModel, err := p.Run()
 	if err != nil {
-		return err
-	}
-	if account != nil {
-		fromAccountToAppConfig(*account, app)
+		return fmt.Errorf("Error: %w", err)
 	}
 
-	// Role resolution: prefer RoleARN, else map RoleName → RoleARN (with account),
-	// else interactive prompt (if account has roles), else require RoleARN.
-	if app.RoleARN == "" {
-		switch {
-		case app.RoleName != "" && account != nil:
-			arn, err := account.FindAWSRoleArnByName(app.RoleName)
-			if err != nil {
-				return err
-			}
-			app.RoleARN = arn.Arn
-		case app.Interactive && account != nil && len(account.AWSRoleArns) > 0:
-			app.RoleARN, err = PromptRoleArn(*account)
-			if err != nil {
-				return err
-			}
-		case app.Interactive:
-			app.RoleARN, err = PromptSimple("Role ARN", "role-arn", "simple")
-			if err != nil {
-				return err
-			}
-		default:
-			return errors.New(AwsRoleArnIsRequired)
-		}
-	} else if err := validateIfSet(app.RoleARN, validators["role-arn"]); err != nil {
-		return err
+	fm, ok := finalModel.(tuiModel)
+	if !ok {
+		return nil
 	}
 
-	// Region: prefer provided; else prompt from account regions; else general list.
-	if app.Region == "" {
-		if app.Interactive {
-			if account != nil && len(account.AWSRegions) > 0 {
-				app.Region, err = PromptRegion(account.AWSRegions)
-			} else {
-				app.Region, err = PromptRegion(aws.RegionsList)
-			}
-			if err != nil {
-				return err
-			}
-		} else {
-			return errors.New(AwsRegionIsRequired)
-		}
-	} else if err := validateIfSet(app.Region, validators["region"]); err != nil {
-		return err
+	// ctrl+c abort — exit immediately, no shell, no error
+	if fm.quitting {
+		return nil
 	}
 
-	// Email
-	if err := promptIfEmpty(app.Interactive, &app.Email, "Email", "email", "simple", errors.New(EmailIsRequired)); err != nil {
-		return err
-	}
-	if err := validateIfSet(app.Email, validators["email"]); err != nil {
-		return err
+	// Credential error — report it
+	if fm.credErr != nil {
+		return fmt.Errorf("credential error: %w", fm.credErr)
 	}
 
-	// Password
-	if err := promptIfEmpty(app.Interactive, &app.Password, "Password", "password", "masked", errors.New(PasswordIsRequired)); err != nil {
-		return err
-	}
-	if err := validateIfSet(app.Password, validators["password"]); err != nil {
-		return err
+	if fm.credResult == nil {
+		return nil
 	}
 
-	// IDP URL
-	if err := promptIfEmpty(app.Interactive, &app.IdpURL, "IDP URL", "idp-url", "simple", errors.New(IdpURLRequred)); err != nil {
-		return err
-	}
-	if err := validateIfSet(app.IdpURL, validators["idp-url"]); err != nil {
-		return err
+	format := fm.resolveOutputFormat()
+	profileName := firstNonEmpty(
+		resolveString(keyAwsCliProfile, fm.account),
+		fm.values[stepAwsCliProfile],
+	)
+
+	// Shell: launch interactive shell with credential env vars
+	if format == "shell" {
+		return launchShell(*fm.credResult, cfg.shellScript)
 	}
 
-	// Principal ARN
-	if err := promptIfEmpty(app.Interactive, &app.PrincipalARN, "Principal ARN", "principal-arn", "simple", errors.New(AwsPrincipalUrlIsRequired)); err != nil {
-		return err
-	}
-	if err := validateIfSet(app.PrincipalARN, validators["principal-arn"]); err != nil {
-		return err
-	}
-
-	// Output format (validate if provided; keep default if empty)
-	if app.OutputFormat != "" {
-		if err := validateIfSet(app.OutputFormat, validators["output-format"]); err != nil {
-			return err
-		}
-	}
-
-	// AWS CLI profile name required for cli / cli-stdout
-	if app.OutputFormat == "cli" || app.OutputFormat == "cli-stdout" {
-		if app.AwsCliProfile == "" {
-			if app.Interactive {
-				val, err := PromptSimple("AWS Cli profile name", "skip", "simple")
-				if err != nil {
-					return err
-				}
-				app.AwsCliProfile = val
-			} else {
-				return errors.New(AwsCliProfileNameIsRequired)
-			}
-		}
-	}
-
-	// MFA (optional); if set, validate format
-	if app.MfaToken == "" && app.Interactive {
-		val, err := PromptSimple("MFA Token Or MFA Secret", "skip", "simple")
-		if err != nil {
-			return err
-		}
-		app.MfaToken = val
-	}
-	if err := validateIfSet(app.MfaToken, validators["mfa"]); err != nil {
-		return err
+	// Stdout formats: output was deferred to post-TUI for real stdout
+	if format == "cli-stdout" || format == "env-stdout" {
+		return outputCredentials(*fm.credResult, format, profileName)
 	}
 
 	return nil
 }
 
-// Resolve account by interactive selection or by name; returns nil if not chosen/available.
-func resolveAccount(app *App) (*config.Account, error) {
-	if len(app.Config.Accounts) == 0 {
-		if app.AccountName != "" {
-			return nil, errors.New(AccountNameCantBeUsed)
+// runHeadless use CLI without launching the TUI.
+// Values must be provided via flags, env vars or config file.
+func runHeadless(cfg *appConfig) error {
+	var acc *config.Account
+
+	// Resolve account if --account is set
+	accountName := viper.GetString(keyAccount)
+	if accountName != "" {
+		if len(cfg.config.Accounts) == 0 {
+			return fmt.Errorf("--account flag can't be used without any pre-configured account")
 		}
-		return nil, nil
+		found, err := cfg.config.FindAccountByName(accountName)
+		if err != nil {
+			return fmt.Errorf("account %q not found in config", accountName)
+		}
+		acc = &found
 	}
 
-	// Interactive: no name → prompt; with name → find
-	if app.Interactive {
-		if app.AccountName == "" {
-			acc, err := PromptAccount(app.Config.GetAccounts())
+	// Resolve all values (Viper flags/env take priority, then account defaults)
+	email := resolveString(keyEmail, acc)
+	password := resolveString(keyPassword, acc)
+	idpURL := resolveString(keyIdpURL, acc)
+	mfaToken := resolveString(keyMFA, acc)
+	principalARN := resolveString(keyPrincipalARN, acc)
+	roleARN := resolveString(keyRoleARN, acc)
+	region := resolveString(keyRegion, acc)
+	duration := resolveDuration(acc)
+	awsCliProfile := resolveString(keyAwsCliProfile, acc)
+
+	// Resolve --role-name to ARN if needed
+	if roleARN == "" {
+		roleName := viper.GetString(keyRoleName)
+		if roleName != "" && acc != nil {
+			role, err := acc.FindAWSRoleArnByName(roleName)
 			if err != nil {
-				return nil, err
+				return fmt.Errorf("role %q not found in account %q", roleName, accountName)
 			}
-			return &acc, nil
+			roleARN = role.Arn
 		}
-		acc, err := app.Config.FindAccountByName(app.AccountName)
-		if err != nil {
-			return nil, err
-		}
-		return &acc, nil
 	}
 
-	// Non-interactive: only if name provided
-	if app.AccountName == "" {
-		return nil, nil
+	// Validate required fields
+	required := []struct {
+		value string
+		flag  string
+	}{
+		{email, "--email"},
+		{password, "--password"},
+		{idpURL, "--idp-url"},
+		{principalARN, "--principal-arn"},
+		{roleARN, "--role-arn"},
+		{region, "--region"},
 	}
-	acc, err := app.Config.FindAccountByName(app.AccountName)
+	for _, r := range required {
+		if r.value == "" {
+			return fmt.Errorf("%s is required (use -i for interactive mode)", r.flag)
+		}
+	}
+
+	// Fetch credentials
+	cred, err := getCredentials(email, password, idpURL, mfaToken, principalARN, roleARN, region, duration)
 	if err != nil {
-		return nil, err
-	}
-	return &acc, nil
-}
-
-// Get credentials flow
-func getCredentials(email, password, idpURL, mfa, principalARN, roleARN, region string, duration int) (cred aws.AwsSamlOutput, err error) {
-	// If MFA value length > 6, treat as secret and derive TOTP
-	if len(mfa) > 6 {
-		mfa, err = totp.GetToken(mfa)
-		if err != nil {
-			return cred, err
-		}
+		return fmt.Errorf("credential error: %w", err)
 	}
 
-	jc, err := jumpcloud.New(email, password, idpURL, mfa)
-	if err != nil {
-		return cred, err
-	}
-	saml, err := jc.GetSaml()
-	if err != nil {
-		return cred, err
+	// Handle output
+	format := viper.GetString(keyOutputFormat)
+
+	if format == "shell" {
+		return launchShell(cred, cfg.shellScript)
 	}
 
-	cred, err = aws.GetCredentials(aws.AwsSamlInput{
-		PrincipalArn:    principalARN,
-		RoleArn:         roleARN,
-		SAMLAssertion:   saml,
-		DurationSeconds: int32(duration),
-		Region:          region,
-	})
-	if err != nil {
-		return cred, err
-	}
-	return cred, nil
-}
-
-// Copy config.Account into App, preferring explicit CLI overrides already set in App.
-func fromAccountToAppConfig(account config.Account, app *App) {
-	app.AccountName = firstNonEmpty(app.AccountName, account.Name)
-	app.Email = firstNonEmpty(app.Email, account.Email)
-	app.Password = firstNonEmpty(app.Password, account.Password)
-	app.IdpURL = firstNonEmpty(app.IdpURL, account.IdpURL)
-	app.MfaToken = firstNonEmpty(app.MfaToken, account.MFASecret)
-	app.PrincipalARN = firstNonEmpty(app.PrincipalARN, account.AWSPrincipalArn)
-
-	// Duration: use account value if --duration was not explicitly provided
-	if !app.DurationSet && account.Duration != 0 {
-		app.Duration = account.Duration
-	}
-
-	// AWS CLI profile: prefer explicit flag; else account value; else account name
-	switch {
-	case app.AwsCliProfile != "":
-		// keep
-	case account.AwsCliProfile != "":
-		app.AwsCliProfile = account.AwsCliProfile
-	default:
-		app.AwsCliProfile = account.Name
-	}
-}
-
-// Output credentials in selected format
-func output(ctx *cli.Context, app *App) error {
-	cred, err := getCredentials(app.Email, app.Password, app.IdpURL, app.MfaToken, app.PrincipalARN, app.RoleARN, app.Region, app.Duration)
-	if err != nil {
-		return err
-	}
-
-	switch app.OutputFormat {
-	case "cli": // store as aws-cli credentials
-		// Ensure ~/.aws/ directory exists
-		awsDir := filepath.Join(UserHomeDir(), ".aws")
-		if err := os.MkdirAll(awsDir, 0700); err != nil {
-			return fmt.Errorf("failed to create directory %s: %w", awsDir, err)
-		}
-
-		// ~/.aws/credentials
-		filePathCreds := filepath.Join(awsDir, "credentials")
-		creds, err := cred.ToAwsCredentials(app.AwsCliProfile, filePathCreds)
-		if err != nil {
-			return fmt.Errorf("failed to prepare AWS credentials: %w", err)
-		}
-		if err := os.WriteFile(filePathCreds, creds, 0600); err != nil {
-			return err
-		}
-
-		// ~/.aws/config
-		filePathConf := filepath.Join(awsDir, "config")
-		conf, err := cred.ToAwsConfig(app.AwsCliProfile, filePathConf)
-		if err != nil {
-			return fmt.Errorf("failed to prepare AWS config: %w", err)
-		}
-		if err := os.WriteFile(filePathConf, conf, 0600); err != nil {
-			return err
-		}
-	case "env": // store as env file (~/.jc2aws.env)
-		filePath := filepath.Join(UserHomeDir(), ".jc2aws.env")
-		if err := os.WriteFile(filePath, []byte(cred.PrintEnv()), 0600); err != nil {
-			return err
-		}
-	case "cli-stdout": // print aws-cli credentials to STDOUT
-		c, _ := cred.ToAwsCredentials(app.AwsCliProfile, "")
-		if err := writeBytes(ctx.App.Writer, c); err != nil {
-			return err
-		}
-	case "env-stdout": // print env variables to STDOUT
-		if _, err := io.WriteString(ctx.App.Writer, cred.PrintEnv()); err != nil {
-			return err
-		}
-	default:
-		return fmt.Errorf("unsupported output format: %s", app.OutputFormat)
-	}
-
-	return nil
-}
-
-// Start interactive shell with AWS credentials environment variables
-func shell(ctx *cli.Context, app *App) error {
-	cred, err := getCredentials(app.Email, app.Password, app.IdpURL, app.MfaToken, app.PrincipalARN, app.RoleARN, app.Region, app.Duration)
-	if err != nil {
-		return err
-	}
-
-	env := cred.ToEnv()    // []string with creds
-	sysEnv := os.Environ() // current env
-	curShell := os.Getenv("SHELL")
-	if curShell == "" {
-		// sensible fallback; avoids exec error on minimal environments
-		curShell = "/bin/sh"
-	}
-
-	scriptName := ctx.Args().First()
-	var cmd *exec.Cmd
-	if scriptName != "" {
-		cmd = exec.Command(curShell, "-i", scriptName)
-	} else {
-		cmd = exec.Command(curShell, "-i")
-	}
-	cmd.Env = append(sysEnv, env...)
-	cmd.Stdin = os.Stdin
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-
-	return cmd.Run()
+	return outputCredentials(cred, format, awsCliProfile)
 }

@@ -12,9 +12,10 @@ import (
 )
 
 const (
-	xsrfURL           = "https://console.jumpcloud.com/userconsole/xsrf"
-	authURL           = "https://console.jumpcloud.com/userconsole/auth"
-	MaxRequestTimeout = 10
+	xsrfURL              = "https://console.jumpcloud.com/userconsole/xsrf"
+	authURL              = "https://console.jumpcloud.com/userconsole/auth"
+	MaxRequestTimeout    = 10
+	MaxConnectionTimeout = 30
 )
 
 // xsfrResponse Jumpcloud XSRF respose structure
@@ -69,7 +70,8 @@ func New(email, password, idpURL, mfaToken string) (JumpCloud, error) {
 		IdpURL:   idpURL,
 		MFAToken: mfaToken,
 
-		MaxRequestTimeout: MaxRequestTimeout,
+		MaxRequestTimeout:    MaxRequestTimeout,
+		MaxConnectionTimeout: MaxConnectionTimeout,
 	}
 
 	return NewWithConfig(config)
@@ -85,6 +87,10 @@ func NewWithConfig(config JumpCloud) (JumpCloud, error) {
 
 	if config.MaxRequestTimeout == 0 {
 		config.MaxRequestTimeout = MaxRequestTimeout
+	}
+
+	if config.MaxConnectionTimeout == 0 {
+		config.MaxConnectionTimeout = MaxConnectionTimeout
 	}
 
 	return config, nil

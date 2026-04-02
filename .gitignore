@@ -23,3 +23,6 @@ go.work.sum
 
 # Dev config file
 ./jc2aws.yaml
+
+# Build output
+bin/

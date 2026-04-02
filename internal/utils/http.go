@@ -3,6 +3,7 @@ package utils
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -52,7 +53,7 @@ func Request(ctx context.Context, method string, url string, body []byte, header
 
 	resp, err = httpClient.Do(req)
 	if err != nil {
-		if e, ok := err.(net.Error); ok && e.Timeout() {
+		if e, ok := errors.AsType[net.Error](err); ok && e.Timeout() {
 			return nil, fmt.Errorf("do request timeout: %s", err)
 		}
 		return nil, fmt.Errorf("cannot do request: %s", err)

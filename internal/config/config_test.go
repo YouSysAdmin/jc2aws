@@ -10,6 +10,8 @@ func TestConfig(t *testing.T) {
 default_email: default@example.com
 default_password: defaultpass123
 default_mfa_token_secret: JBSWY3DPEHPK3PXP
+default_format: env
+tui_done_action: menu
 accounts:
   - name: "dev-account"
     email: "dev@example.com"
@@ -58,6 +60,14 @@ accounts:
 
 	if config.GetDefaultMFATokenSecret() != "JBSWY3DPEHPK3PXP" {
 		t.Errorf("Expected default MFA secret 'JBSWY3DPEHPK3PXP', got '%s'", config.GetDefaultMFATokenSecret())
+	}
+
+	if config.GetDefaultFormat() != "env" {
+		t.Errorf("Expected default format 'env', got '%s'", config.GetDefaultFormat())
+	}
+
+	if config.GetTUIDoneAction() != "menu" {
+		t.Errorf("Expected TUI done action 'menu', got '%s'", config.GetTUIDoneAction())
 	}
 
 	// Test GetAccountsNameList
@@ -202,5 +212,83 @@ func TestConfigGetDefaultPasswordBug(t *testing.T) {
 func TestDefaultConfigFileName(t *testing.T) {
 	if DefaultConfigFileName != ".jc2aws.yaml" {
 		t.Errorf("Expected DefaultConfigFileName to be '.jc2aws.yaml', got '%s'", DefaultConfigFileName)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// session_timeout backward compatibility
+// ---------------------------------------------------------------------------
+
+func TestConfigSessionTimeoutBackwardCompat(t *testing.T) {
+	tests := []struct {
+		name             string
+		yaml             string
+		expectedDuration int
+	}{
+		{
+			name: "session_timeout only",
+			yaml: `
+accounts:
+  - name: "test"
+    session_timeout: 7200
+`,
+			expectedDuration: 7200,
+		},
+		{
+			name: "session_duration only",
+			yaml: `
+accounts:
+  - name: "test"
+    session_duration: 43200
+`,
+			expectedDuration: 43200,
+		},
+		{
+			name: "both set - session_duration wins",
+			yaml: `
+accounts:
+  - name: "test"
+    session_duration: 43200
+    session_timeout: 7200
+`,
+			expectedDuration: 43200,
+		},
+		{
+			name: "neither set",
+			yaml: `
+accounts:
+  - name: "test"
+`,
+			expectedDuration: 0,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			tmpFile, err := os.CreateTemp("", "jc2aws_timeout_test_*.yaml")
+			if err != nil {
+				t.Fatalf("Failed to create temp file: %v", err)
+			}
+			defer os.Remove(tmpFile.Name())
+
+			if _, err := tmpFile.WriteString(tt.yaml); err != nil {
+				t.Fatalf("Failed to write config data: %v", err)
+			}
+			tmpFile.Close()
+
+			cfg, err := NewConfig(tmpFile.Name())
+			if err != nil {
+				t.Fatalf("Failed to load config: %v", err)
+			}
+
+			if len(cfg.Accounts) == 0 {
+				t.Fatal("Expected at least one account")
+			}
+
+			got := cfg.Accounts[0].Duration
+			if got != tt.expectedDuration {
+				t.Errorf("Duration: want %d, got %d", tt.expectedDuration, got)
+			}
+		})
 	}
 }
