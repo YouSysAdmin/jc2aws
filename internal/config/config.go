@@ -11,13 +11,18 @@ import (
 
 const DefaultConfigFileName = ".jc2aws.yaml"
 
+// Config of TUI/CLI
 type Config struct {
 	DefaultEmail          string    `yaml:"default_email"`
 	DefaultPassword       string    `yaml:"default_password"`
 	DefaultMFATokenSecret string    `yaml:"default_mfa_token_secret"`
+	NoUpdateCheck         bool      `yaml:"no_update_check"`
+	DefaultFormat         string    `yaml:"default_format"`
+	TUIDoneAction         string    `yaml:"tui_done_action"`
 	Accounts              []Account `yaml:"accounts"`
 }
 
+// NewConfig read config from file and return filled Config struct
 func NewConfig(path string) (conf *Config, err error) {
 
 	conf = &Config{}
@@ -34,6 +39,14 @@ func NewConfig(path string) (conf *Config, err error) {
 	err = yaml.Unmarshal(file, &conf)
 	if err != nil {
 		return conf, err
+	}
+
+	// Backward compatibility: migrate deprecated session_timeout to Duration
+	// if session_duration is not set. session_timeout will be removed in a future release.
+	for i := range conf.Accounts {
+		if conf.Accounts[i].Duration == 0 && conf.Accounts[i].SessionTimeout != 0 {
+			conf.Accounts[i].Duration = conf.Accounts[i].SessionTimeout
+		}
 	}
 
 	return conf, nil
@@ -57,6 +70,7 @@ func (c *Config) GetAccounts() (accounts []Account) {
 	return accounts
 }
 
+// GetAccountsNameList return list of account names
 func (c *Config) GetAccountsNameList() ([]string, error) {
 	var accountsList []string
 	for _, a := range c.Accounts {
@@ -76,7 +90,14 @@ func (c *Config) GetDefaultEmail() string { return c.DefaultEmail }
 // GetDefaultPassword return list of accounts
 func (c *Config) GetDefaultPassword() string { return c.DefaultPassword }
 
+// GetDefaultMFATokenSecret return value of the default_mfa_token_secret config param
 func (c *Config) GetDefaultMFATokenSecret() string { return c.DefaultMFATokenSecret }
+
+// GetDefaultFormat return value of the default_format config param
+func (c *Config) GetDefaultFormat() string { return c.DefaultFormat }
+
+// GetTUIDoneAction return value of the tui_done_action config param
+func (c *Config) GetTUIDoneAction() string { return c.TUIDoneAction }
 
 // FindAccountByName return account by account name from accounts list
 func (c *Config) FindAccountByName(name string) (account Account, err error) {

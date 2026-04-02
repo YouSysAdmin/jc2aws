@@ -18,6 +18,15 @@ type Account struct {
 	AWSRegions      []string  `yaml:"aws_regions"`
 	IdpURL          string    `yaml:"jc_idp_url"`
 	Duration        int       `yaml:"session_duration"`
+	// Deprecated: use session_duration instead. Will be removed in a future release.
+	SessionTimeout int `yaml:"session_timeout"`
+}
+
+// AWSRole store information about aws roles
+type AWSRole struct {
+	Name        string `yaml:"name"`
+	Description string `yaml:"description"`
+	Arn         string `yaml:"arn"`
 }
 
 // FindAWSRoleArnByName return account by account name from accounts list

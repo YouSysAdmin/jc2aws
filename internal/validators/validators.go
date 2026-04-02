@@ -1,4 +1,4 @@
-package main
+package validators
 
 import (
 	"errors"
@@ -10,8 +10,8 @@ import (
 	"github.com/yousysadmin/jc2aws/internal/aws"
 )
 
-// Input parameters validators list
-var validators = map[string]func(input string) error{
+// Map contains named validator functions for input parameters.
+var Map = map[string]func(input string) error{
 	"skip": func(input string) error { return nil },
 	"email": func(input string) error {
 		_, err := mail.ParseAddress(input)
@@ -60,10 +60,15 @@ var validators = map[string]func(input string) error{
 		return nil
 	},
 	"output-format": func(input string) error {
-		formats := []string{"cli", "env", "cli-stdout", "env-stdout"}
+		formats := []string{"cli", "env", "cli-stdout", "env-stdout", "shell"}
 		if !slices.Contains(formats, input) {
 			return errors.New("invalid output format")
 		}
 		return nil
 	},
+}
+
+// Get returns the validator function for the given key, or nil if not found.
+func Get(key string) func(string) error {
+	return Map[key]
 }
