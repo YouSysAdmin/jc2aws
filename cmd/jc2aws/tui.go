@@ -615,10 +615,10 @@ func (m tuiModel) viewSidebar() string {
 	var b strings.Builder
 
 	// Print Logo
-	//   ╦╔═╗┌─┐╔═╗╦ ╦╔═╗
-	//   ║║  ┌─┘╠═╣║║║╚═╗
-	// ╚═╩╚═╝└──╩ ╩╚╩╝╚═╝
-	b.WriteString(titleStyle.Render("    ╦╔═╗┌─┐╔═╗╦ ╦╔═╗\n    ║║  ┌─┘╠═╣║║║╚═╗\n  ╚═╩╚═╝└──╩ ╩╚╩╝╚═╝") + "\n\n")
+	//  ╦╔═╗╔═╗╔═╗╦ ╦╔═╗
+	//  ║║  ╔═╝╠═╣║║║╚═╗
+	//╚═╝╚═╝╚══╩ ╩╚╩╝╚═╝
+	b.WriteString(titleStyle.Render("    ╦╔═╗╔═╗╔═╗╦ ╦╔═╗\n    ║║  ╔═╝╠═╣║║║╚═╗\n  ╚═╝╚═╝╚══╩ ╩╚╩╝╚═╝") + "\n\n")
 
 	for _, s := range m.steps {
 		// Hide steps that were pre-set via config/flags/env
