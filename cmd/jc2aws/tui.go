@@ -105,6 +105,7 @@ func newTuiModel(cfg *appConfig) tuiModel {
 		height:  24,
 	}
 
+	m.preResolveSteps()
 	m.initStep()
 	return m
 }
@@ -149,6 +150,7 @@ func (m *tuiModel) initStep() {
 			if err == nil {
 				m.account = &acc
 				m.setStepValueWithSource(stepAccount, acc.Name, sourcePreset)
+				m.preResolveSteps()
 				m.advanceStep()
 				return
 			}
@@ -317,6 +319,67 @@ func (m *tuiModel) advanceStep() {
 	m.initStep()
 }
 
+// preResolveSteps marks steps that will be auto-skipped as sourcePreset so the
+// sidebar hides them immediately instead of showing them as pending steps until
+// the wizard sequentially walks through each one.
+// This is purely a display optimization — initStep() still performs the actual
+// skip logic and is the source of truth.
+func (m *tuiModel) preResolveSteps() {
+	acc := m.account
+
+	// Role
+	if viper.GetString(keyRoleARN) != "" {
+		m.setStepValueWithSource(stepRole, viper.GetString(keyRoleARN), sourcePreset)
+	} else if roleName := viper.GetString(keyRoleName); roleName != "" && acc != nil {
+		if role, err := acc.FindAWSRoleArnByName(roleName); err == nil {
+			m.setStepValueWithSource(stepRole, role.Name, sourcePreset)
+		}
+	}
+
+	// Region
+	if resolveString(keyRegion, acc) != "" {
+		m.setStepValueWithSource(stepRegion, resolveString(keyRegion, acc), sourcePreset)
+	}
+
+	// Email
+	if firstNonEmpty(resolveString(keyEmail, acc), m.values[stepEmail]) != "" {
+		m.setStepValueWithSource(stepEmail, firstNonEmpty(resolveString(keyEmail, acc), m.values[stepEmail]), sourcePreset)
+	}
+
+	// Password
+	if firstNonEmpty(resolveString(keyPassword, acc), m.values[stepPassword]) != "" {
+		m.setStepValueWithSource(stepPassword, "(set)", sourcePreset)
+	}
+
+	// IDP URL
+	if firstNonEmpty(resolveString(keyIdpURL, acc), m.values[stepIdpURL]) != "" {
+		m.setStepValueWithSource(stepIdpURL, firstNonEmpty(resolveString(keyIdpURL, acc), m.values[stepIdpURL]), sourcePreset)
+	}
+
+	// Principal ARN
+	if val := firstNonEmpty(resolveString(keyPrincipalARN, acc), m.values[stepPrincipalARN]); val != "" {
+		m.setStepValueWithSource(stepPrincipalARN, truncateARN(val), sourcePreset)
+	}
+
+	// Output Format
+	if viper.IsSet(keyOutputFormat) {
+		m.setStepValueWithSource(stepOutputFormat, viper.GetString(keyOutputFormat), sourcePreset)
+	}
+
+	// AWS CLI Profile
+	format := m.resolveOutputFormat()
+	if format != "cli" && format != "cli-stdout" {
+		m.setStepValueWithSource(stepAwsCliProfile, "(n/a)", sourcePreset)
+	} else if firstNonEmpty(resolveString(keyAwsCliProfile, acc), m.values[stepAwsCliProfile]) != "" {
+		m.setStepValueWithSource(stepAwsCliProfile, firstNonEmpty(resolveString(keyAwsCliProfile, acc), m.values[stepAwsCliProfile]), sourcePreset)
+	}
+
+	// MFA
+	if firstNonEmpty(resolveString(keyMFA, acc), m.values[stepMFA]) != "" {
+		m.setStepValueWithSource(stepMFA, "(set)", sourcePreset)
+	}
+}
+
 // resolveOutputFormat returns the effective output format.
 // When the flag was not explicitly set (via flag, env, or config), prefer the
 // interactive value over the Viper default ("cli") so that the user's TUI
@@ -470,6 +533,7 @@ func (m *tuiModel) handleSelectResult(item selectItem) {
 			}
 		}
 		m.setStepValueWithSource(stepAccount, item.name, sourceInteractive)
+		m.preResolveSteps()
 		m.advanceStep()
 
 	case stepRole:
