@@ -1285,6 +1285,12 @@ func TestUpdate_CredentialResultError(t *testing.T) {
 	if rm.current != stepDone {
 		t.Errorf("should transition to stepDone on error, got %d", rm.current)
 	}
+	if rm.compType != "choice" {
+		t.Errorf("compType should be 'choice' (error menu) on credential error, got %q", rm.compType)
+	}
+	if rm.done {
+		t.Error("done should be false on error — user must see the error")
+	}
 }
 
 func TestUpdate_CredentialResultSuccess(t *testing.T) {
@@ -1401,6 +1407,46 @@ func TestUpdate_OutputResultError(t *testing.T) {
 	}
 	if !rm.outputDone {
 		t.Error("outputDone should be true even on error")
+	}
+	if rm.compType != "choice" {
+		t.Errorf("compType should be 'choice' (error menu) on output error, got %q", rm.compType)
+	}
+	if rm.done {
+		t.Error("done should be false on output error — user must see the error")
+	}
+}
+
+func TestInitStep_DoneErrorIgnoresTUIDoneAction(t *testing.T) {
+	// Even with tui_done_action=exit, errors must show the menu.
+	for _, action := range []string{"", "exit"} {
+		name := "default"
+		if action != "" {
+			name = action
+		}
+		t.Run(name, func(t *testing.T) {
+			resetViper()
+			viper.Set(keyOutputFormat, "cli")
+			if action != "" {
+				viper.Set(keyTUIDoneAction, action)
+			}
+
+			cfg := newTestConfig(nil)
+			m := tuiModel{
+				appCfg:  cfg,
+				steps:   allStepMeta(),
+				current: stepDone,
+				values:  make(map[stepID]string),
+				credErr: &validationError{"auth failed"},
+			}
+			m.initStep()
+
+			if m.compType != "choice" {
+				t.Errorf("compType should be 'choice' on error regardless of tui_done_action=%q, got %q", action, m.compType)
+			}
+			if m.done {
+				t.Errorf("done should be false on error regardless of tui_done_action=%q", action)
+			}
+		})
 	}
 }
 
