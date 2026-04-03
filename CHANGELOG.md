@@ -6,54 +6,66 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [4.0.1] 2026-04-03
+
+#### Fixed
+- Sidebar optimization: steps that will be auto-skipped (via config/flags/env) are hidden
+  from the sidebar immediately after account selection, instead of showing as pending dots until the
+  wizard sequentially reaches each one. (#19)[https://github.com/YouSysAdmin/jc2aws/issues/19]
+
+#### Changed
+- Update CHANGELOG
+- Simplify CHANGELOG for the v4.0.0 - cosmetic changes have been removed.
+
 ## [4.0.0] 2026-04-02
 
-#### Added
-- TUI wizard using bubbletea, bubbles and lipgloss
+#### Changed
+- Migrate to the new TUI wizard using bubbletea, bubbles and lipgloss.
+
 - Cobra and Viper are used to implement the CLI interface and configure.
   - Parameter precedence: CLI flag > environment variable (`J2A_*`) > config file defaults > account defaults > CLI defaults
-- Headless mode (default): all values from flags/env/config, no TUI launched
-- `-i` / `--interactive` flag (and `J2A_INTERACTIVE` env var) to launch the TUI wizard
-- `-s` / `--shell` flag as alias for `--output-format=shell`
-- `--shell-script` flag (and `J2A_SHELL_SCRIPT` env var) to run a script with AWS credential env vars
-- Output formats: `cli`, `env`, `cli-stdout`, `env-stdout`, `shell`
-  - `cli-stdout` and `env-stdout` defer output to after the TUI exits to avoid mixing with the alternate screen buffer
-  - `shell` launches an interactive shell (or runs `--shell-script`) with credential env vars post-TUI
-  - `cli` and `env` write to files immediately during the TUI
-- Account selection from config with automatic defaults (email, password, MFA, IDP URL, principal ARN, duration, CLI profile)
-- Role selection by name (resolved to ARN from account config) or direct ARN input
-- Region selection with account-specific regions shown first
-- Output format selection step in the TUI wizard.
-  To skip this step in the TUI wizard, set `default_format` in the config file or use the `-f` / `--output-format` flag
-- Update check on startup
-  - Banner at the top of the right content panel when a new version is available
-  - `--no-update-check` flag, `J2A_NO_UPDATE_CHECK` env var, and `no_update_check` YAML config field to disable
-- `--update` flag for standalone self-update mode (downloads latest `jc2aws` release from GitHub)
+  - Headless mode (default): all values from flags/env/config, no TUI launched
+    - `-i` / `--interactive` flag (and `J2A_INTERACTIVE` env var) to launch the TUI wizard
+    - `-s` / `--shell` flag as alias for `--output-format=shell`
+    - `--shell-script` flag (and `J2A_SHELL_SCRIPT` env var) to run a script with AWS credential env vars
+
+- Added new dependencies: `bubbletea`, `bubbles`, `lipgloss`, `cobra`, `viper`
+
+- Updated `configs/jc2aws.yaml` example - added `aws_cli_profile`, `no_update_check`, `default_format`, `tui_done_action` fields.
+
+- Updated `README.md` - added environment variables table, self-update section, and updated config example with all available fields
+
+#### Added
 - `default_format` config field (`yaml:"default_format"`) - sets a default credential output format
   from the config file, skipping the format selection step in the TUI
-- `tui_done_action` config field (`yaml:"tui_done_action"`) - controls TUI behavior after writing
-  file-based credentials (`cli`, `env` formats). Options: `"exit"` (default, immediate close),
-  `"menu"` (show Run again/Quit choice), `"wait"` (press any key to continue). Config-file only, no CLI flag.
+
 - `pkg/update` package for CLI self-update functionality
   - `CheckLatestVersion()` - fetches latest GitHub release, compares semver
   - `DownloadAndReplace()` - downloads release archive, verifies SHA256 checksum against `checksums.sha256`,
      extracts binary from `.tar.gz` (Linux/macOS) or `.zip` (Windows), performs atomic binary replacement
   - `CompareVersions()` - semver comparison
   - `BuildAssetName()` - constructs GoReleaser-compatible asset filenames
-- `internal/validators` package - extracted named validation functions (email, ARN, URL, region, etc.)
-- `NoUpdateCheck` field in `internal/config.Config` struct (`yaml:"no_update_check"`)
-- `DefaultFormat` field in `internal/config.Config` struct (`yaml:"default_format"`) - allows setting a
+
+-  The validation seperatd to the `internal/validators` package - extracted named validation functions (email, ARN, URL, region, etc.)
+
+- Update check on startup
+  - Banner at the top of the right content panel when a new version is available
+  - `--no-update-check` flag, `J2A_NO_UPDATE_CHECK` env var, and `no_update_check` YAML config field to disable
+  - `--update` flag for standalone self-update mode (downloads latest `jc2aws` release from GitHub)
+  - `NoUpdateCheck` field in `internal/config.Config` struct (`yaml:"no_update_check"`)
+  - `DefaultFormat` field in `internal/config.Config` struct (`yaml:"default_format"`) - allows setting a
    default credential output format from the config file
-- `TUIDoneAction` field in `internal/config.Config` struct (`yaml:"tui_done_action"`) - allows configuring
-   TUI behavior after writing file-based credentials
-- Backward compatibility: deprecated `session_timeout` config field is still accepted as an alias
+
+- `tui_done_action` config field (`yaml:"tui_done_action"`) - controls TUI behavior after writing
+  file-based credentials (`cli`, `env` formats). Options: `"exit"` (default, immediate close),
+  `"menu"` (show Run again/Quit choice), `"wait"` (press any key to continue). Config-file only, no CLI flag.
+  - `TUIDoneAction` field in `internal/config.Config` struct (`yaml:"tui_done_action"`) - allows configuring
+     TUI behavior after writing file-based credentials
+
+#### Deprecated
+- `session_timeout` config field is still accepted as an alias
   for `session_duration` in account configs. If `session_duration` is not set but `session_timeout` is,
   the value is migrated automatically. `session_timeout` will be removed in a future release.
-
-#### Changed
-- Added new dependencies: `bubbletea`, `bubbles`, `lipgloss`, `cobra`, `viper`
-- Updated `configs/jc2aws.yaml` example - added `aws_cli_profile`, `no_update_check`, `default_format`, `tui_done_action` fields.
-- Updated `README.md` - added environment variables table, self-update section, and updated config example with all available fields
 
 ## [3.0.1] - 2026-03-17
 
@@ -138,7 +150,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 Initial release.
 
-[Unreleased]: https://github.com/YouSysAdmin/jc2aws/compare/v4.0.0...HEAD
+[Unreleased]: https://github.com/YouSysAdmin/jc2aws/compare/v4.0.1...HEAD
+[4.0.1]: https://github.com/YouSysAdmin/jc2aws/compare/v4.0.0...v4.0.1
 [4.0.0]: https://github.com/YouSysAdmin/jc2aws/compare/v3.0.1...v4.0.0
 [3.0.1]: https://github.com/YouSysAdmin/jc2aws/compare/v3.0.0...v3.0.1
 [3.0.0]: https://github.com/YouSysAdmin/jc2aws/compare/v2.2.0...v3.0.0
