@@ -12,6 +12,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Sidebar optimization: steps that will be auto-skipped (via config/flags/env) are hidden
   from the sidebar immediately after account selection, instead of showing as pending dots until the
   wizard sequentially reaches each one. (#19)[https://github.com/YouSysAdmin/jc2aws/issues/19]
+- If retrieving credentials fails, user receives a "black screen" instead of seeing an error in the TUI.
 
 #### Changed
 - Update CHANGELOG

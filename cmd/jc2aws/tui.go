@@ -274,6 +274,13 @@ func (m *tuiModel) initStep() {
 		m.compType = "spinner"
 
 	case stepDone:
+		// Always show errors to the user — never auto-exit on failure.
+		if m.credErr != nil || m.outputErr != nil {
+			m.choiceComp = newChoiceModel("What next?", []string{"Run again", "Quit"})
+			m.compType = "choice"
+			return
+		}
+
 		format := m.resolveOutputFormat()
 		switch format {
 		case "shell":

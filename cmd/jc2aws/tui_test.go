@@ -1285,6 +1285,12 @@ func TestUpdate_CredentialResultError(t *testing.T) {
 	if rm.current != stepDone {
 		t.Errorf("should transition to stepDone on error, got %d", rm.current)
 	}
+	if rm.compType != "choice" {
+		t.Errorf("compType should be 'choice' (error menu) on credential error, got %q", rm.compType)
+	}
+	if rm.done {
+		t.Error("done should be false on error — user must see the error")
+	}
 }
 
 func TestUpdate_CredentialResultSuccess(t *testing.T) {
@@ -1401,6 +1407,363 @@ func TestUpdate_OutputResultError(t *testing.T) {
 	}
 	if !rm.outputDone {
 		t.Error("outputDone should be true even on error")
+	}
+	if rm.compType != "choice" {
+		t.Errorf("compType should be 'choice' (error menu) on output error, got %q", rm.compType)
+	}
+	if rm.done {
+		t.Error("done should be false on output error — user must see the error")
+	}
+}
+
+func TestInitStep_DoneErrorIgnoresTUIDoneAction(t *testing.T) {
+	// Even with tui_done_action=exit, errors must show the menu.
+	for _, action := range []string{"", "exit"} {
+		name := "default"
+		if action != "" {
+			name = action
+		}
+		t.Run(name, func(t *testing.T) {
+			resetViper()
+			viper.Set(keyOutputFormat, "cli")
+			if action != "" {
+				viper.Set(keyTUIDoneAction, action)
+			}
+
+			cfg := newTestConfig(nil)
+			m := tuiModel{
+				appCfg:  cfg,
+				steps:   allStepMeta(),
+				current: stepDone,
+				values:  make(map[stepID]string),
+				credErr: &validationError{"auth failed"},
+			}
+			m.initStep()
+
+			if m.compType != "choice" {
+				t.Errorf("compType should be 'choice' on error regardless of tui_done_action=%q, got %q", action, m.compType)
+			}
+			if m.done {
+				t.Errorf("done should be false on error regardless of tui_done_action=%q", action)
+			}
+		})
+	}
+}
+
+// ---------------------------------------------------------------------------
+// preResolveSteps tests
+// ---------------------------------------------------------------------------
+
+func TestPreResolveSteps_WithFullAccount(t *testing.T) {
+	resetViper()
+
+	acc := testAccounts()[0] // prod: has email, password, mfa, idpURL, principalARN, awsCliProfile
+	cfg := newTestConfig(testAccounts())
+	m := tuiModel{
+		appCfg:  cfg,
+		steps:   allStepMeta(),
+		current: stepAccount,
+		values:  make(map[stepID]string),
+		account: &acc,
+	}
+
+	m.preResolveSteps()
+
+	// Email should be pre-resolved from account
+	if stepSrc(m, stepEmail) != sourcePreset {
+		t.Errorf("email source: want %q, got %q", sourcePreset, stepSrc(m, stepEmail))
+	}
+	if stepValue(m, stepEmail) != "prod@example.com" {
+		t.Errorf("email value: want %q, got %q", "prod@example.com", stepValue(m, stepEmail))
+	}
+
+	// Password should be pre-resolved from account
+	if stepSrc(m, stepPassword) != sourcePreset {
+		t.Errorf("password source: want %q, got %q", sourcePreset, stepSrc(m, stepPassword))
+	}
+	if stepValue(m, stepPassword) != "(set)" {
+		t.Errorf("password value: want %q, got %q", "(set)", stepValue(m, stepPassword))
+	}
+
+	// IDP URL
+	if stepSrc(m, stepIdpURL) != sourcePreset {
+		t.Errorf("idpURL source: want %q, got %q", sourcePreset, stepSrc(m, stepIdpURL))
+	}
+
+	// Principal ARN
+	if stepSrc(m, stepPrincipalARN) != sourcePreset {
+		t.Errorf("principalARN source: want %q, got %q", sourcePreset, stepSrc(m, stepPrincipalARN))
+	}
+
+	// MFA
+	if stepSrc(m, stepMFA) != sourcePreset {
+		t.Errorf("mfa source: want %q, got %q", sourcePreset, stepSrc(m, stepMFA))
+	}
+	if stepValue(m, stepMFA) != "(set)" {
+		t.Errorf("mfa value: want %q, got %q", "(set)", stepValue(m, stepMFA))
+	}
+
+	// AWS CLI Profile — output format not set, so resolveOutputFormat returns ""
+	// which is neither "cli" nor "cli-stdout", so profile should be "(n/a)"
+	if stepSrc(m, stepAwsCliProfile) != sourcePreset {
+		t.Errorf("awsCliProfile source: want %q, got %q", sourcePreset, stepSrc(m, stepAwsCliProfile))
+	}
+
+	// Region should be pre-resolved from account's AWSRegions
+	// (resolveString for keyRegion doesn't fall back to account regions, so no preset unless Viper has it)
+}
+
+func TestPreResolveSteps_WithViperOnly(t *testing.T) {
+	resetViper()
+	viper.Set(keyOutputFormat, "env")
+	viper.Set(keyEmail, "viper@example.com")
+	viper.Set(keyRegion, "eu-west-1")
+
+	cfg := newTestConfig(nil)
+	m := tuiModel{
+		appCfg:  cfg,
+		steps:   allStepMeta(),
+		current: stepAccount,
+		values:  make(map[stepID]string),
+		account: nil, // no account
+	}
+
+	m.preResolveSteps()
+
+	// Output format should be pre-resolved from Viper
+	if stepSrc(m, stepOutputFormat) != sourcePreset {
+		t.Errorf("outputFormat source: want %q, got %q", sourcePreset, stepSrc(m, stepOutputFormat))
+	}
+	if stepValue(m, stepOutputFormat) != "env" {
+		t.Errorf("outputFormat value: want %q, got %q", "env", stepValue(m, stepOutputFormat))
+	}
+
+	// Email from Viper
+	if stepSrc(m, stepEmail) != sourcePreset {
+		t.Errorf("email source: want %q, got %q", sourcePreset, stepSrc(m, stepEmail))
+	}
+	if stepValue(m, stepEmail) != "viper@example.com" {
+		t.Errorf("email value: want %q, got %q", "viper@example.com", stepValue(m, stepEmail))
+	}
+
+	// Region from Viper
+	if stepSrc(m, stepRegion) != sourcePreset {
+		t.Errorf("region source: want %q, got %q", sourcePreset, stepSrc(m, stepRegion))
+	}
+	if stepValue(m, stepRegion) != "eu-west-1" {
+		t.Errorf("region value: want %q, got %q", "eu-west-1", stepValue(m, stepRegion))
+	}
+}
+
+func TestPreResolveSteps_NoAccount(t *testing.T) {
+	resetViper()
+
+	cfg := newTestConfig(nil)
+	m := tuiModel{
+		appCfg:  cfg,
+		steps:   allStepMeta(),
+		current: stepAccount,
+		values:  make(map[stepID]string),
+		account: nil,
+	}
+
+	m.preResolveSteps()
+
+	// Nothing should be pre-resolved (no account, no Viper settings)
+	for _, s := range m.steps {
+		// AWS CLI Profile gets "(n/a)" because format is "" (not cli/cli-stdout)
+		if s.id == stepAwsCliProfile {
+			continue
+		}
+		if s.source == sourcePreset {
+			t.Errorf("step %d (%s) should not be preset with no account and no Viper, got source=%q value=%q",
+				s.id, s.title, s.source, s.value)
+		}
+	}
+}
+
+func TestPreResolveSteps_PartialAccount(t *testing.T) {
+	resetViper()
+
+	acc := config.Account{
+		Name:  "partial",
+		Email: "partial@example.com",
+		// No password, no MFA, no IDP URL, no principal ARN
+	}
+	cfg := newTestConfig(nil)
+	m := tuiModel{
+		appCfg:  cfg,
+		steps:   allStepMeta(),
+		current: stepAccount,
+		values:  make(map[stepID]string),
+		account: &acc,
+	}
+
+	m.preResolveSteps()
+
+	// Email should be pre-resolved
+	if stepSrc(m, stepEmail) != sourcePreset {
+		t.Errorf("email should be preset, got source=%q", stepSrc(m, stepEmail))
+	}
+	if stepValue(m, stepEmail) != "partial@example.com" {
+		t.Errorf("email value: want %q, got %q", "partial@example.com", stepValue(m, stepEmail))
+	}
+
+	// Password should NOT be pre-resolved
+	if stepSrc(m, stepPassword) == sourcePreset {
+		t.Error("password should not be preset for partial account")
+	}
+
+	// MFA should NOT be pre-resolved
+	if stepSrc(m, stepMFA) == sourcePreset {
+		t.Error("mfa should not be preset for partial account")
+	}
+
+	// IDP URL should NOT be pre-resolved
+	if stepSrc(m, stepIdpURL) == sourcePreset {
+		t.Error("idpURL should not be preset for partial account")
+	}
+
+	// Principal ARN should NOT be pre-resolved
+	if stepSrc(m, stepPrincipalARN) == sourcePreset {
+		t.Error("principalARN should not be preset for partial account")
+	}
+}
+
+func TestPreResolveSteps_RoleARNFromViper(t *testing.T) {
+	resetViper()
+	viper.Set(keyRoleARN, "arn:aws:iam::111:role/direct")
+
+	cfg := newTestConfig(nil)
+	m := tuiModel{
+		appCfg:  cfg,
+		steps:   allStepMeta(),
+		current: stepAccount,
+		values:  make(map[stepID]string),
+		account: nil,
+	}
+
+	m.preResolveSteps()
+
+	if stepSrc(m, stepRole) != sourcePreset {
+		t.Errorf("role source: want %q, got %q", sourcePreset, stepSrc(m, stepRole))
+	}
+	if stepValue(m, stepRole) != "arn:aws:iam::111:role/direct" {
+		t.Errorf("role value: want ARN, got %q", stepValue(m, stepRole))
+	}
+}
+
+func TestPreResolveSteps_RoleNameFromViper(t *testing.T) {
+	resetViper()
+	viper.Set(keyRoleName, "admin")
+
+	acc := testAccounts()[0] // has admin role
+	cfg := newTestConfig(nil)
+	m := tuiModel{
+		appCfg:  cfg,
+		steps:   allStepMeta(),
+		current: stepAccount,
+		values:  make(map[stepID]string),
+		account: &acc,
+	}
+
+	m.preResolveSteps()
+
+	if stepSrc(m, stepRole) != sourcePreset {
+		t.Errorf("role source: want %q, got %q", sourcePreset, stepSrc(m, stepRole))
+	}
+	if stepValue(m, stepRole) != "admin" {
+		t.Errorf("role display: want %q, got %q", "admin", stepValue(m, stepRole))
+	}
+}
+
+func TestPreResolveSteps_AwsCliProfileForCliFormat(t *testing.T) {
+	resetViper()
+	viper.Set(keyOutputFormat, "cli")
+
+	acc := config.Account{Name: "test", AwsCliProfile: "my-profile"}
+	cfg := newTestConfig(nil)
+	m := tuiModel{
+		appCfg:  cfg,
+		steps:   allStepMeta(),
+		current: stepAccount,
+		values:  make(map[stepID]string),
+		account: &acc,
+	}
+
+	m.preResolveSteps()
+
+	if stepSrc(m, stepAwsCliProfile) != sourcePreset {
+		t.Errorf("awsCliProfile source: want %q, got %q", sourcePreset, stepSrc(m, stepAwsCliProfile))
+	}
+	if stepValue(m, stepAwsCliProfile) != "my-profile" {
+		t.Errorf("awsCliProfile value: want %q, got %q", "my-profile", stepValue(m, stepAwsCliProfile))
+	}
+}
+
+func TestPreResolveSteps_AwsCliProfileNAForNonCliFormat(t *testing.T) {
+	resetViper()
+	viper.Set(keyOutputFormat, "env")
+
+	cfg := newTestConfig(nil)
+	m := tuiModel{
+		appCfg:  cfg,
+		steps:   allStepMeta(),
+		current: stepAccount,
+		values:  make(map[stepID]string),
+		account: nil,
+	}
+
+	m.preResolveSteps()
+
+	if stepSrc(m, stepAwsCliProfile) != sourcePreset {
+		t.Errorf("awsCliProfile source: want %q, got %q", sourcePreset, stepSrc(m, stepAwsCliProfile))
+	}
+	if stepValue(m, stepAwsCliProfile) != "(n/a)" {
+		t.Errorf("awsCliProfile value: want %q, got %q", "(n/a)", stepValue(m, stepAwsCliProfile))
+	}
+}
+
+func TestPreResolveSteps_CalledFromNewTuiModel(t *testing.T) {
+	resetViper()
+	viper.Set(keyAccount, "prod")
+
+	cfg := newTestConfig(testAccounts())
+	m := newTuiModel(cfg)
+
+	// After account preset, preResolveSteps should have pre-resolved
+	// account fields from the prod account
+	if stepSrc(m, stepEmail) != sourcePreset {
+		t.Errorf("email should be preset after newTuiModel with account preset, got %q", stepSrc(m, stepEmail))
+	}
+	if stepSrc(m, stepPassword) != sourcePreset {
+		t.Errorf("password should be preset after newTuiModel with account preset, got %q", stepSrc(m, stepPassword))
+	}
+	if stepSrc(m, stepMFA) != sourcePreset {
+		t.Errorf("mfa should be preset after newTuiModel with account preset, got %q", stepSrc(m, stepMFA))
+	}
+}
+
+func TestPreResolveSteps_CalledFromHandleSelectResult(t *testing.T) {
+	resetViper()
+
+	cfg := newTestConfig(testAccounts())
+	m := tuiModel{
+		appCfg:  cfg,
+		steps:   allStepMeta(),
+		current: stepAccount,
+		values:  make(map[stepID]string),
+	}
+
+	m.handleSelectResult(selectItem{name: "prod"})
+
+	// After interactive account selection, preResolveSteps should have
+	// pre-resolved the account fields
+	if stepSrc(m, stepEmail) != sourcePreset {
+		t.Errorf("email should be preset after account selection, got source=%q", stepSrc(m, stepEmail))
+	}
+	if stepSrc(m, stepPassword) != sourcePreset {
+		t.Errorf("password should be preset after account selection, got source=%q", stepSrc(m, stepPassword))
 	}
 }
 
