@@ -100,7 +100,7 @@ brews:
       owner: YouSysAdmin
       name: homebrew-apps
     directory: Formula
-    homepage: https://github.com/umputun/revdiff
+    homepage: https://github.com/yousysadmin/jc2aws
     description: Get AWS credentials via Jumpcloud SAML
     license: MIT
 
