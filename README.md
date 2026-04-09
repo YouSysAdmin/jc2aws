@@ -27,6 +27,10 @@ go install github.com/yousysadmin/jc2aws/cmd/jc2aws@latest
 curl -L https://raw.githubusercontent.com/yousysadmin/jc2aws/master/scripts/install.sh | bash
 ```
 
+```shell
+brew install yousysadmin/apps/jc2aws
+```
+
 ## Usage
 
 **IMPORTANT:** Jumpcloud only allows you to log in with one TOTP code once, in fact you can't login more than once every 30 seconds (TOTP code expiration time)
