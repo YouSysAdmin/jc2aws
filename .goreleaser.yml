@@ -95,6 +95,15 @@ nfpms:
         file_info:
           mode: 0644
 
+brews:
+  - repository:
+      owner: YouSysAdmin
+      name: homebrew-apps
+    directory: Formula
+    homepage: https://github.com/umputun/revdiff
+    description: Get AWS credentials via Jumpcloud SAML
+    license: MIT
+
 dockers:
   # linux/amd64
   - ids: [linux]
