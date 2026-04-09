@@ -6,6 +6,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [4.1.0] 2026-04-09
+
+#### Added
+- Brew pkg release
+  ```
+  brew install yousysadmin/apps/jc2aws
+  ```
+
 ## [4.0.1] 2026-04-03
 
 #### Fixed
@@ -151,7 +159,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 Initial release.
 
-[Unreleased]: https://github.com/YouSysAdmin/jc2aws/compare/v4.0.1...HEAD
+[Unreleased]: https://github.com/YouSysAdmin/jc2aws/compare/v4.1.0...HEAD
+[4.1.0]: https://github.com/YouSysAdmin/jc2aws/compare/v4.0.1...v4.1.0
 [4.0.1]: https://github.com/YouSysAdmin/jc2aws/compare/v4.0.0...v4.0.1
 [4.0.0]: https://github.com/YouSysAdmin/jc2aws/compare/v3.0.1...v4.0.0
 [3.0.1]: https://github.com/YouSysAdmin/jc2aws/compare/v3.0.0...v3.0.1
