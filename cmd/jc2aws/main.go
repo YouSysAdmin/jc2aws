@@ -283,16 +283,23 @@ func runInteractive(cfg *appConfig) error {
 		fm.values[stepAwsCliProfile],
 	)
 
-	// Shell: launch interactive shell with credential env vars
-	if format == "shell" {
-		return launchShell(*fm.credResult, cfg.shellScript)
-	}
-
-	// Stdout formats: output was deferred to post-TUI for real stdout
+	// Stdout formats: the credentials themselves are the output and already make
+	// success obvious, so no extra summary is printed.
 	if format == "cli-stdout" || format == "env-stdout" {
 		return outputCredentials(*fm.credResult, format, profileName)
 	}
 
+	summary := fm.accountInfoText()
+
+	// Shell: summary to stderr (stdout belongs to the subshell), then launch.
+	if format == "shell" {
+		printAccountInfo(os.Stderr, summary)
+		return launchShell(*fm.credResult, cfg.shellScript)
+	}
+
+	// File-based formats (cli, env): files were already written inside the TUI.
+	// Just print the summary. stdout is free.
+	printAccountInfo(os.Stdout, summary)
 	return nil
 }
 

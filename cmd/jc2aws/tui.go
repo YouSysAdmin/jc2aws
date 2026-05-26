@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/charmbracelet/bubbles/spinner"
 	tea "github.com/charmbracelet/bubbletea"
@@ -834,6 +835,33 @@ func (m tuiModel) viewDoneResult() string {
 		return details.String()
 	}
 	return ""
+}
+
+// accountInfoText builds the plain-text (no styling) account summary printed to
+// the normal terminal after the TUI exits. Never includes secret material.
+func (m tuiModel) accountInfoText() string {
+	region := firstNonEmpty(m.credResult.Region, resolveString(keyRegion, m.account), m.values[stepRegion])
+
+	var b strings.Builder
+	b.WriteString("Logged in successfully\n")
+	writeKV(&b, "Account", m.stepDisplay(stepAccount))
+	writeKV(&b, "Role", m.stepDisplay(stepRole))
+	writeKV(&b, "Region", region)
+	if m.credResult.Expiration != nil {
+		exp := m.credResult.Expiration.Local()
+		writeKV(&b, "Expires", fmt.Sprintf("%s (in %s)",
+			exp.Format("2006-01-02 15:04:05 MST"),
+			time.Until(exp).Round(time.Second)))
+	}
+	return b.String()
+}
+
+// writeKV writes an aligned "Label: value" line, skipping empty/placeholder values.
+func writeKV(b *strings.Builder, label, value string) {
+	if value == "" || value == "(n/a)" || value == "(no config)" {
+		return
+	}
+	fmt.Fprintf(b, "  %-8s %s\n", label+":", value)
 }
 
 func (m tuiModel) stepDisplay(id stepID) string {

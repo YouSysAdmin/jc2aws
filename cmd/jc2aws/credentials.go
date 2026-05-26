@@ -102,6 +102,11 @@ func outputCredentials(cred aws.AwsSamlOutput, format, profileName string) error
 	return nil
 }
 
+// printAccountInfo writes the human-readable account summary to the given stream.
+func printAccountInfo(w io.Writer, summary string) {
+	fmt.Fprint(w, summary)
+}
+
 // launchShell starts an interactive shell with AWS credential env vars injected.
 func launchShell(cred aws.AwsSamlOutput, scriptName string) error {
 	env := cred.ToEnv()

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"strings"
 	"testing"
 	"time"
 
@@ -2023,6 +2024,82 @@ func TestInit_UpdateCheckIncludedByDefault(t *testing.T) {
 
 	if cmd == nil {
 		t.Fatal("Init should return a command")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// accountInfoText tests
+// ---------------------------------------------------------------------------
+
+func TestAccountInfoText_FieldsAndNoSecrets(t *testing.T) {
+	resetViper()
+
+	exp := time.Date(2026, 5, 26, 16, 4, 5, 0, time.UTC)
+	cred := &aws.AwsSamlOutput{
+		AccessKeyID:     "AKIASECRETKEYID",
+		SecretAccessKey: "SUPERSECRETKEY",
+		SessionToken:    "SESSIONTOKENVALUE",
+		Region:          "eu-west-1",
+		Expiration:      &exp,
+	}
+
+	cfg := newTestConfig(nil)
+	m := tuiModel{
+		appCfg:     cfg,
+		steps:      allStepMeta(),
+		values:     make(map[stepID]string),
+		credResult: cred,
+	}
+	m.setStepValueWithSource(stepAccount, "prod", sourceInteractive)
+	m.setStepValueWithSource(stepRole, "admin", sourceInteractive)
+
+	out := m.accountInfoText()
+
+	for _, want := range []string{"Logged in successfully", "Account:", "prod", "Role:", "admin", "Region:", "eu-west-1", "Expires:"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("accountInfoText missing %q\n--- output ---\n%s", want, out)
+		}
+	}
+
+	// Secret material must never appear in the printed summary.
+	for _, secret := range []string{cred.AccessKeyID, cred.SecretAccessKey, cred.SessionToken} {
+		if strings.Contains(out, secret) {
+			t.Errorf("accountInfoText leaked secret %q\n--- output ---\n%s", secret, out)
+		}
+	}
+}
+
+func TestAccountInfoText_NilExpirationAndPlaceholders(t *testing.T) {
+	resetViper()
+
+	cred := &aws.AwsSamlOutput{
+		Region:     "us-east-1",
+		Expiration: nil,
+	}
+
+	cfg := newTestConfig(nil)
+	m := tuiModel{
+		appCfg:     cfg,
+		steps:      allStepMeta(),
+		values:     make(map[stepID]string),
+		credResult: cred,
+	}
+	// Placeholder account display and empty role should both be suppressed.
+	m.setStepValueWithSource(stepAccount, "(no config)", sourcePreset)
+
+	out := m.accountInfoText()
+
+	if strings.Contains(out, "Expires:") {
+		t.Errorf("nil expiration should omit Expires line, got:\n%s", out)
+	}
+	if strings.Contains(out, "Account:") {
+		t.Errorf("placeholder account value should be suppressed, got:\n%s", out)
+	}
+	if strings.Contains(out, "Role:") {
+		t.Errorf("empty role should be suppressed, got:\n%s", out)
+	}
+	if !strings.Contains(out, "Region:") || !strings.Contains(out, "us-east-1") {
+		t.Errorf("region should still be present, got:\n%s", out)
 	}
 }
 
