@@ -30,7 +30,7 @@ func TestGetToken(t *testing.T) {
 		{
 			name:      "empty secret key",
 			secretKey: "",
-			wantErr:   false, // Implementation handles empty string by decoding to empty bytes
+			wantErr:   true, // An unset secret must be an error, not a bogus code
 		},
 		{
 			name:      "invalid base32 secret",
@@ -215,7 +215,7 @@ func TestBase32DecodingEdgeCases(t *testing.T) {
 		{
 			name:      "valid base32 with padding",
 			secretKey: "JBSWY3DPEHPK3PXP=",
-			wantErr:   true, // Implementation uses NoPadding, so padding causes error
+			wantErr:   false, // Padding is stripped before decoding
 		},
 		{
 			name:      "valid base32 without padding",
@@ -225,12 +225,12 @@ func TestBase32DecodingEdgeCases(t *testing.T) {
 		{
 			name:      "empty string",
 			secretKey: "",
-			wantErr:   false, // Empty string decodes to empty bytes
+			wantErr:   true, // An unset secret must be an error, not a bogus code
 		},
 		{
 			name:      "only whitespace",
 			secretKey: "   ",
-			wantErr:   false, // Whitespace trimmed to empty string
+			wantErr:   true, // Normalizes to empty — an error, not a bogus code
 		},
 		{
 			name:      "invalid characters",

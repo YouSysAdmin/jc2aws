@@ -1,9 +1,13 @@
 package config
 
 import (
+	"errors"
 	"fmt"
 	"slices"
 )
+
+// ErrRoleNotFound is returned when a role name is not present in the account.
+var ErrRoleNotFound = errors.New("role not found")
 
 // Account store information about configured AWS accounts
 type Account struct {
@@ -33,7 +37,7 @@ type AWSRole struct {
 func (a *Account) FindAWSRoleArnByName(name string) (role AWSRole, err error) {
 	idx := slices.IndexFunc(a.AWSRoleArns, func(r AWSRole) bool { return r.Name == name })
 	if idx < 0 {
-		return role, fmt.Errorf("the role %s not found", name)
+		return role, fmt.Errorf("%w: %s", ErrRoleNotFound, name)
 	}
 	return a.AWSRoleArns[idx], nil
 }

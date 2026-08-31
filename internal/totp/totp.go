@@ -2,7 +2,7 @@ package totp
 
 import (
 	"crypto/hmac"
-	"crypto/sha1"
+	"crypto/sha1" //nolint:gosec // RFC 6238 mandates HMAC-SHA1
 	"encoding/base32"
 	"encoding/binary"
 	"fmt"
@@ -22,12 +22,28 @@ func GetToken(secretKey string) (string, error) {
 	return fmt.Sprintf("%06d", code), nil
 }
 
+// normalizeSecret strips the padding, whitespace and dashes that commonly
+// appear in copy-pasted or display-formatted secrets.
+func normalizeSecret(secretKey string) string {
+	secretKey = strings.Map(func(r rune) rune {
+		switch r {
+		case ' ', '\t', '\n', '\r', '-', '=':
+			return -1
+		}
+		return r
+	}, secretKey)
+	return strings.ToUpper(secretKey)
+}
+
 // generateTOTP function
 func generateTOTP(secretKey string, timestamp int64) (uint32, error) {
 
 	// The base32 encoded secret key string is decoded to a byte slice
 	base32Decoder := base32.StdEncoding.WithPadding(base32.NoPadding)
-	secretKey = strings.ToUpper(strings.TrimSpace(secretKey)) // preprocess
+	secretKey = normalizeSecret(secretKey)
+	if secretKey == "" {
+		return 0, fmt.Errorf("empty MFA secret")
+	}
 	secretBytes, err := base32Decoder.DecodeString(secretKey) // decode
 	if err != nil {
 		return 0, fmt.Errorf("invalid base32 secret: %w", err)

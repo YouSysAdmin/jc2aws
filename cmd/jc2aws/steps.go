@@ -1,7 +1,7 @@
 package main
 
 import (
-	"fmt"
+	"strconv"
 	"strings"
 
 	"github.com/yousysadmin/jc2aws/internal/aws"
@@ -95,7 +95,7 @@ func buildAccountSelect(accounts []config.Account) selectModel {
 			details = append(details, detailPair{"MFA", "Not present"})
 		}
 		if a.Duration > 0 {
-			details = append(details, detailPair{"Duration", fmt.Sprintf("%d", a.Duration)})
+			details = append(details, detailPair{"Duration", strconv.Itoa(a.Duration)})
 		}
 
 		items = append(items, selectItem{

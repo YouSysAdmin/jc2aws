@@ -1,15 +1,21 @@
 package config
 
 import (
+	"cmp"
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 	"slices"
+	"strings"
 
-	"gopkg.in/yaml.v2"
+	"go.yaml.in/yaml/v3"
 )
 
 const DefaultConfigFileName = ".jc2aws.yaml"
+
+// ErrAccountNotFound is returned when an account name is not present in the config.
+var ErrAccountNotFound = errors.New("account not found")
 
 // Config of TUI/CLI
 type Config struct {
@@ -22,23 +28,39 @@ type Config struct {
 	Accounts              []Account `yaml:"accounts"`
 }
 
+// expandHome expands a leading ~ in the given path to the user's home directory.
+func expandHome(path string) string {
+	if path == "~" || strings.HasPrefix(path, "~/") {
+		if home, err := os.UserHomeDir(); err == nil {
+			return filepath.Join(home, strings.TrimPrefix(path, "~"))
+		}
+	}
+	return path
+}
+
 // NewConfig read config from file and return filled Config struct
 func NewConfig(path string) (conf *Config, err error) {
-
 	conf = &Config{}
+	path = expandHome(path)
 
-	if _, err = os.Stat(path); errors.Is(err, os.ErrNotExist) {
+	fi, err := os.Stat(path)
+	if errors.Is(err, os.ErrNotExist) {
 		return conf, fmt.Errorf("config file %s not found: %w", path, err)
+	}
+
+	// The config file may hold plaintext passwords and MFA secrets.
+	if err == nil && fi.Mode().Perm()&0o077 != 0 {
+		fmt.Fprintf(os.Stderr, "Warning: config file %s is accessible by other users (mode %o); consider chmod 600\n",
+			path, fi.Mode().Perm())
 	}
 
 	file, err := os.ReadFile(path)
 	if err != nil {
-		return conf, err
+		return conf, fmt.Errorf("failed to read config file %s: %w", path, err)
 	}
 
-	err = yaml.Unmarshal(file, &conf)
-	if err != nil {
-		return conf, err
+	if err := yaml.Unmarshal(file, conf); err != nil {
+		return conf, fmt.Errorf("failed to parse config file %s: %w", path, err)
 	}
 
 	// Backward compatibility: migrate deprecated session_timeout to Duration
@@ -52,71 +74,29 @@ func NewConfig(path string) (conf *Config, err error) {
 	return conf, nil
 }
 
+// applyDefaults fills account-level blanks from the config-wide defaults.
+func (c *Config) applyDefaults(a Account) Account {
+	a.Email = cmp.Or(a.Email, c.DefaultEmail)
+	a.Password = cmp.Or(a.Password, c.DefaultPassword)
+	a.MFASecret = cmp.Or(a.MFASecret, c.DefaultMFATokenSecret)
+	return a
+}
+
 // GetAccounts return list of accounts
 func (c *Config) GetAccounts() (accounts []Account) {
 	// sets default email, password and mfa if it is not set for an account separately
 	for _, a := range c.Accounts {
-		if a.Email == "" {
-			a.Email = c.DefaultEmail
-		}
-		if a.Password == "" {
-			a.Password = c.DefaultPassword
-		}
-		if a.MFASecret == "" {
-			a.MFASecret = c.DefaultMFATokenSecret
-		}
-		accounts = append(accounts, a)
+		accounts = append(accounts, c.applyDefaults(a))
 	}
 	return accounts
 }
 
-// GetAccountsNameList return list of account names
-func (c *Config) GetAccountsNameList() ([]string, error) {
-	var accountsList []string
-	for _, a := range c.Accounts {
-		accountsList = append(accountsList, a.Name)
-	}
-
-	if len(accountsList) <= 0 {
-		return nil, errors.New("accounts list is empty")
-	}
-
-	return accountsList, nil
-}
-
-// GetDefaultEmail return list of accounts
-func (c *Config) GetDefaultEmail() string { return c.DefaultEmail }
-
-// GetDefaultPassword return list of accounts
-func (c *Config) GetDefaultPassword() string { return c.DefaultPassword }
-
-// GetDefaultMFATokenSecret return value of the default_mfa_token_secret config param
-func (c *Config) GetDefaultMFATokenSecret() string { return c.DefaultMFATokenSecret }
-
-// GetDefaultFormat return value of the default_format config param
-func (c *Config) GetDefaultFormat() string { return c.DefaultFormat }
-
-// GetTUIDoneAction return value of the tui_done_action config param
-func (c *Config) GetTUIDoneAction() string { return c.TUIDoneAction }
-
 // FindAccountByName return account by account name from accounts list
 func (c *Config) FindAccountByName(name string) (account Account, err error) {
-	idx := slices.IndexFunc(c.GetAccounts(), func(a Account) bool { return a.Name == name })
+	idx := slices.IndexFunc(c.Accounts, func(a Account) bool { return a.Name == name })
 	if idx < 0 {
-		return account, fmt.Errorf("the account %s not found", name)
+		return account, fmt.Errorf("%w: %s", ErrAccountNotFound, name)
 	}
 
-	account = c.Accounts[idx]
-
-	if account.Email == "" {
-		account.Email = c.DefaultEmail
-	}
-	if account.Password == "" {
-		account.Password = c.DefaultPassword
-	}
-	if account.MFASecret == "" {
-		account.MFASecret = c.DefaultMFATokenSecret
-	}
-
-	return account, nil
+	return c.applyDefaults(c.Accounts[idx]), nil
 }

@@ -190,7 +190,32 @@ aws_access_key_id     = TEST_ACCESS_KEY_ID
 aws_secret_access_key = TEST_SECRET_ACCESS_KEY
 aws_session_token     = TEST_SESSION_TOKEN
 expiration            = %s
-`, timeNow)},
+`, timeNow.Format(time.RFC3339))},
+		{name: "empty profile name falls back to default", fields: fields{
+			AccessKeyID:     "TEST_ACCESS_KEY_ID",
+			SecretAccessKey: "TEST_SECRET_ACCESS_KEY",
+			SessionToken:    "TEST_SESSION_TOKEN",
+			Expiration:      aws.Time(timeNow),
+		},
+			args: args{profileName: ""},
+			want: fmt.Appendf(nil, `[default]
+aws_access_key_id     = TEST_ACCESS_KEY_ID
+aws_secret_access_key = TEST_SECRET_ACCESS_KEY
+aws_session_token     = TEST_SESSION_TOKEN
+expiration            = %s
+`, timeNow.Format(time.RFC3339))},
+		{name: "nil expiration omits the key", fields: fields{
+			AccessKeyID:     "TEST_ACCESS_KEY_ID",
+			SecretAccessKey: "TEST_SECRET_ACCESS_KEY",
+			SessionToken:    "TEST_SESSION_TOKEN",
+			Expiration:      nil,
+		},
+			args: args{profileName: "default"},
+			want: []byte(`[default]
+aws_access_key_id     = TEST_ACCESS_KEY_ID
+aws_secret_access_key = TEST_SECRET_ACCESS_KEY
+aws_session_token     = TEST_SESSION_TOKEN
+`)},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -361,7 +386,7 @@ func TestGetCredentialsErrorHandling(t *testing.T) {
 		DurationSeconds: 3600,
 	}
 
-	_, err := GetCredentials(input)
+	_, err := GetCredentials(t.Context(), input)
 	if err == nil {
 		t.Error("Expected error for invalid input, got nil")
 	}

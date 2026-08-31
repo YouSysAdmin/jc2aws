@@ -1,7 +1,10 @@
 package main
 
 import (
+	"cmp"
+	"context"
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 
@@ -45,6 +48,18 @@ const (
 	doneChoiceQuit     = 1
 )
 
+// compKind identifies the component active for the current step.
+type compKind string
+
+const (
+	compNone     compKind = ""
+	compSelect   compKind = "select"
+	compInput    compKind = "input"
+	compChoice   compKind = "choice"
+	compSpinner  compKind = "spinner"
+	compAwaitKey compKind = "await-key"
+)
+
 // ---------------------------------------------------------------------------
 // Main TUI model
 // ---------------------------------------------------------------------------
@@ -70,7 +85,11 @@ type tuiModel struct {
 	spinner    spinner.Model
 
 	// Component type active for current step
-	compType string // "select", "input", "choice", "spinner", "await-key", ""
+	compType compKind
+
+	// notice is a non-fatal warning shown above the active component
+	// (e.g. a preset account or role name that was not found).
+	notice string
 
 	// Result
 	credResult *aws.AwsSamlOutput
@@ -123,10 +142,10 @@ func (m tuiModel) Init() tea.Cmd {
 }
 
 func (m tuiModel) initCmd() tea.Cmd {
-	if m.compType == "input" {
+	if m.compType == compInput {
 		return m.inputComp.Init()
 	}
-	if m.compType == "spinner" {
+	if m.compType == compSpinner {
 		return m.spinner.Tick
 	}
 	return nil
@@ -138,6 +157,7 @@ func (m tuiModel) initCmd() tea.Cmd {
 
 func (m *tuiModel) initStep() {
 	cfg := m.appCfg
+	m.notice = ""
 
 	switch m.current {
 	case stepAccount:
@@ -149,15 +169,16 @@ func (m *tuiModel) initStep() {
 		if accountName := viper.GetString(keyAccount); accountName != "" {
 			acc, err := cfg.config.FindAccountByName(accountName)
 			if err == nil {
-				m.account = &acc
+				m.account = new(acc)
 				m.setStepValueWithSource(stepAccount, acc.Name, sourcePreset)
 				m.preResolveSteps()
 				m.advanceStep()
 				return
 			}
+			m.notice = fmt.Sprintf("account %q not found in config — select one manually", accountName)
 		}
 		m.selectComp = buildAccountSelect(cfg.config.GetAccounts())
-		m.compType = "select"
+		m.compType = compSelect
 
 	case stepRole:
 		if roleARN := viper.GetString(keyRoleARN); roleARN != "" {
@@ -173,13 +194,14 @@ func (m *tuiModel) initStep() {
 				m.advanceStep()
 				return
 			}
+			m.notice = fmt.Sprintf("role %q not found in account %q — select one manually", roleName, m.account.Name)
 		}
 		if m.account != nil && len(m.account.AWSRoleArns) > 0 {
 			m.selectComp = buildRoleSelect(*m.account)
-			m.compType = "select"
+			m.compType = compSelect
 		} else {
 			m.inputComp = buildRoleARNInput()
-			m.compType = "input"
+			m.compType = compInput
 		}
 
 	case stepRegion:
@@ -190,47 +212,47 @@ func (m *tuiModel) initStep() {
 		}
 		regions := regionListForAccount(m.account)
 		m.selectComp = buildRegionSelect(regions)
-		m.compType = "select"
+		m.compType = compSelect
 
 	case stepEmail:
-		val := firstNonEmpty(resolveString(keyEmail, m.account), m.values[stepEmail])
+		val := cmp.Or(resolveString(keyEmail, m.account), m.values[stepEmail])
 		if val != "" {
 			m.setStepValueWithSource(stepEmail, val, sourcePreset)
 			m.advanceStep()
 			return
 		}
 		m.inputComp = buildEmailInput()
-		m.compType = "input"
+		m.compType = compInput
 
 	case stepPassword:
-		val := firstNonEmpty(resolveString(keyPassword, m.account), m.values[stepPassword])
+		val := cmp.Or(resolveString(keyPassword, m.account), m.values[stepPassword])
 		if val != "" {
 			m.setStepValueWithSource(stepPassword, "(set)", sourcePreset)
 			m.advanceStep()
 			return
 		}
 		m.inputComp = buildPasswordInput()
-		m.compType = "input"
+		m.compType = compInput
 
 	case stepIdpURL:
-		val := firstNonEmpty(resolveString(keyIdpURL, m.account), m.values[stepIdpURL])
+		val := cmp.Or(resolveString(keyIdpURL, m.account), m.values[stepIdpURL])
 		if val != "" {
 			m.setStepValueWithSource(stepIdpURL, val, sourcePreset)
 			m.advanceStep()
 			return
 		}
 		m.inputComp = buildIdpURLInput()
-		m.compType = "input"
+		m.compType = compInput
 
 	case stepPrincipalARN:
-		val := firstNonEmpty(resolveString(keyPrincipalARN, m.account), m.values[stepPrincipalARN])
+		val := cmp.Or(resolveString(keyPrincipalARN, m.account), m.values[stepPrincipalARN])
 		if val != "" {
 			m.setStepValueWithSource(stepPrincipalARN, truncateARN(val), sourcePreset)
 			m.advanceStep()
 			return
 		}
 		m.inputComp = buildPrincipalARNInput()
-		m.compType = "input"
+		m.compType = compInput
 
 	case stepOutputFormat:
 		if viper.IsSet(keyOutputFormat) {
@@ -239,7 +261,7 @@ func (m *tuiModel) initStep() {
 			return
 		}
 		m.selectComp = buildOutputFormatSelect()
-		m.compType = "select"
+		m.compType = compSelect
 
 	case stepAwsCliProfile:
 		format := m.resolveOutputFormat()
@@ -248,37 +270,37 @@ func (m *tuiModel) initStep() {
 			m.advanceStep()
 			return
 		}
-		val := firstNonEmpty(resolveString(keyAwsCliProfile, m.account), m.values[stepAwsCliProfile])
+		val := cmp.Or(resolveString(keyAwsCliProfile, m.account), m.values[stepAwsCliProfile])
 		if val != "" {
 			m.setStepValueWithSource(stepAwsCliProfile, val, sourcePreset)
 			m.advanceStep()
 			return
 		}
 		m.inputComp = buildAwsCliProfileInput()
-		m.compType = "input"
+		m.compType = compInput
 
 	case stepMFA:
-		val := firstNonEmpty(resolveString(keyMFA, m.account), m.values[stepMFA])
+		val := cmp.Or(resolveString(keyMFA, m.account), m.values[stepMFA])
 		if val != "" {
 			m.setStepValueWithSource(stepMFA, "(set)", sourcePreset)
 			m.advanceStep()
 			return
 		}
 		m.inputComp = buildMFAInput()
-		m.compType = "input"
+		m.compType = compInput
 
 	case stepConfirm:
 		m.choiceComp = newChoiceModel("Review and confirm", []string{"Confirm", "Restart"})
-		m.compType = "choice"
+		m.compType = compChoice
 
 	case stepFetching:
-		m.compType = "spinner"
+		m.compType = compSpinner
 
 	case stepDone:
 		// Always show errors to the user — never auto-exit on failure.
 		if m.credErr != nil || m.outputErr != nil {
 			m.choiceComp = newChoiceModel("What next?", []string{"Run again", "Quit"})
-			m.compType = "choice"
+			m.compType = compChoice
 			return
 		}
 
@@ -286,44 +308,37 @@ func (m *tuiModel) initStep() {
 		switch format {
 		case "shell":
 			// Shell launches post-TUI; show result and wait for any key.
-			m.compType = "await-key"
+			m.compType = compAwaitKey
 		case "cli-stdout", "env-stdout":
 			// Stdout formats: immediately quit; output prints post-TUI.
 			m.done = true
-			m.compType = ""
+			m.compType = compNone
 		default:
 			// File-based formats (cli, env): behavior depends on tui_done_action config.
 			switch viper.GetString(keyTUIDoneAction) {
 			case "menu":
 				m.choiceComp = newChoiceModel("What next?", []string{"Run again", "Quit"})
-				m.compType = "choice"
+				m.compType = compChoice
 			case "wait":
-				m.compType = "await-key"
+				m.compType = compAwaitKey
 			default: // "exit" or empty
 				m.done = true
-				m.compType = ""
+				m.compType = compNone
 			}
 		}
 	}
 }
 
 func (m *tuiModel) setStepValueWithSource(id stepID, display, source string) {
-	for i, s := range m.steps {
-		if s.id == id {
-			m.steps[i].value = display
-			m.steps[i].source = source
-			break
-		}
+	if i := slices.IndexFunc(m.steps, func(s stepMeta) bool { return s.id == id }); i >= 0 {
+		m.steps[i].value = display
+		m.steps[i].source = source
 	}
 }
 
 func (m *tuiModel) advanceStep() {
-	next := m.current + 1
-	if next > stepDone {
-		next = stepDone
-	}
-	m.current = next
-	m.compType = ""
+	m.current = min(m.current+1, stepDone)
+	m.compType = compNone
 	m.initStep()
 }
 
@@ -350,22 +365,22 @@ func (m *tuiModel) preResolveSteps() {
 	}
 
 	// Email
-	if firstNonEmpty(resolveString(keyEmail, acc), m.values[stepEmail]) != "" {
-		m.setStepValueWithSource(stepEmail, firstNonEmpty(resolveString(keyEmail, acc), m.values[stepEmail]), sourcePreset)
+	if cmp.Or(resolveString(keyEmail, acc), m.values[stepEmail]) != "" {
+		m.setStepValueWithSource(stepEmail, cmp.Or(resolveString(keyEmail, acc), m.values[stepEmail]), sourcePreset)
 	}
 
 	// Password
-	if firstNonEmpty(resolveString(keyPassword, acc), m.values[stepPassword]) != "" {
+	if cmp.Or(resolveString(keyPassword, acc), m.values[stepPassword]) != "" {
 		m.setStepValueWithSource(stepPassword, "(set)", sourcePreset)
 	}
 
 	// IDP URL
-	if firstNonEmpty(resolveString(keyIdpURL, acc), m.values[stepIdpURL]) != "" {
-		m.setStepValueWithSource(stepIdpURL, firstNonEmpty(resolveString(keyIdpURL, acc), m.values[stepIdpURL]), sourcePreset)
+	if cmp.Or(resolveString(keyIdpURL, acc), m.values[stepIdpURL]) != "" {
+		m.setStepValueWithSource(stepIdpURL, cmp.Or(resolveString(keyIdpURL, acc), m.values[stepIdpURL]), sourcePreset)
 	}
 
 	// Principal ARN
-	if val := firstNonEmpty(resolveString(keyPrincipalARN, acc), m.values[stepPrincipalARN]); val != "" {
+	if val := cmp.Or(resolveString(keyPrincipalARN, acc), m.values[stepPrincipalARN]); val != "" {
 		m.setStepValueWithSource(stepPrincipalARN, truncateARN(val), sourcePreset)
 	}
 
@@ -378,12 +393,12 @@ func (m *tuiModel) preResolveSteps() {
 	format := m.resolveOutputFormat()
 	if format != "cli" && format != "cli-stdout" {
 		m.setStepValueWithSource(stepAwsCliProfile, "(n/a)", sourcePreset)
-	} else if firstNonEmpty(resolveString(keyAwsCliProfile, acc), m.values[stepAwsCliProfile]) != "" {
-		m.setStepValueWithSource(stepAwsCliProfile, firstNonEmpty(resolveString(keyAwsCliProfile, acc), m.values[stepAwsCliProfile]), sourcePreset)
+	} else if cmp.Or(resolveString(keyAwsCliProfile, acc), m.values[stepAwsCliProfile]) != "" {
+		m.setStepValueWithSource(stepAwsCliProfile, cmp.Or(resolveString(keyAwsCliProfile, acc), m.values[stepAwsCliProfile]), sourcePreset)
 	}
 
 	// MFA
-	if firstNonEmpty(resolveString(keyMFA, acc), m.values[stepMFA]) != "" {
+	if cmp.Or(resolveString(keyMFA, acc), m.values[stepMFA]) != "" {
 		m.setStepValueWithSource(stepMFA, "(set)", sourcePreset)
 	}
 }
@@ -396,10 +411,8 @@ func (m tuiModel) resolveOutputFormat() string {
 	if viper.IsSet(keyOutputFormat) {
 		return viper.GetString(keyOutputFormat)
 	}
-	if v := m.values[stepOutputFormat]; v != "" {
-		return v
-	}
-	return viper.GetString(keyOutputFormat) // fall back to default
+	// Prefer the interactive value, falling back to the Viper flag default.
+	return cmp.Or(m.values[stepOutputFormat], viper.GetString(keyOutputFormat))
 }
 
 // ---------------------------------------------------------------------------
@@ -441,7 +454,7 @@ func (m tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.initStep()
 			return m, nil
 		}
-		m.credResult = &msg.cred
+		m.credResult = new(msg.cred)
 		// Write output immediately inside the TUI
 		return m, m.writeOutput()
 
@@ -509,7 +522,7 @@ func (m tuiModel) handleChoiceResult() (tea.Model, tea.Cmd) {
 		switch idx {
 		case confirmChoiceConfirm:
 			m.current = stepFetching
-			m.compType = "spinner"
+			m.compType = compSpinner
 			return m, tea.Batch(m.spinner.Tick, m.fetchCredentials())
 		case confirmChoiceRestart:
 			nm := m.restart()
@@ -534,11 +547,8 @@ func (m *tuiModel) handleSelectResult(item selectItem) {
 	switch m.current {
 	case stepAccount:
 		accounts := m.appCfg.config.GetAccounts()
-		for i := range accounts {
-			if accounts[i].Name == item.name {
-				m.account = &accounts[i]
-				break
-			}
+		if i := slices.IndexFunc(accounts, func(a config.Account) bool { return a.Name == item.name }); i >= 0 {
+			m.account = &accounts[i]
 		}
 		m.setStepValueWithSource(stepAccount, item.name, sourceInteractive)
 		m.preResolveSteps()
@@ -546,11 +556,9 @@ func (m *tuiModel) handleSelectResult(item selectItem) {
 
 	case stepRole:
 		if m.account != nil {
-			for _, r := range m.account.AWSRoleArns {
-				if r.Name == item.name {
-					m.values[stepRole] = r.Arn
-					break
-				}
+			roles := m.account.AWSRoleArns
+			if i := slices.IndexFunc(roles, func(r config.AWSRole) bool { return r.Name == item.name }); i >= 0 {
+				m.values[stepRole] = roles[i].Arn
 			}
 		}
 		m.setStepValueWithSource(stepRole, item.name, sourceInteractive)
@@ -607,16 +615,16 @@ func (m tuiModel) restart() tuiModel {
 
 func (m tuiModel) fetchCredentials() tea.Cmd {
 	return func() tea.Msg {
-		email := firstNonEmpty(resolveString(keyEmail, m.account), m.values[stepEmail])
-		password := firstNonEmpty(resolveString(keyPassword, m.account), m.values[stepPassword])
-		idpURL := firstNonEmpty(resolveString(keyIdpURL, m.account), m.values[stepIdpURL])
-		mfa := firstNonEmpty(resolveString(keyMFA, m.account), m.values[stepMFA])
-		principalARN := firstNonEmpty(resolveString(keyPrincipalARN, m.account), m.values[stepPrincipalARN])
-		roleARN := firstNonEmpty(viper.GetString(keyRoleARN), m.values[stepRole])
-		region := firstNonEmpty(resolveString(keyRegion, m.account), m.values[stepRegion])
+		email := cmp.Or(resolveString(keyEmail, m.account), m.values[stepEmail])
+		password := cmp.Or(resolveString(keyPassword, m.account), m.values[stepPassword])
+		idpURL := cmp.Or(resolveString(keyIdpURL, m.account), m.values[stepIdpURL])
+		mfa := cmp.Or(resolveString(keyMFA, m.account), m.values[stepMFA])
+		principalARN := cmp.Or(resolveString(keyPrincipalARN, m.account), m.values[stepPrincipalARN])
+		roleARN := cmp.Or(viper.GetString(keyRoleARN), m.values[stepRole])
+		region := cmp.Or(resolveString(keyRegion, m.account), m.values[stepRegion])
 		duration := resolveDuration(m.account)
 
-		cred, err := getCredentials(email, password, idpURL, mfa, principalARN, roleARN, region, duration)
+		cred, err := getCredentials(context.Background(), email, password, idpURL, mfa, principalARN, roleARN, region, duration)
 		return credentialResultMsg{cred: cred, err: err}
 	}
 }
@@ -624,7 +632,7 @@ func (m tuiModel) fetchCredentials() tea.Cmd {
 func (m tuiModel) writeOutput() tea.Cmd {
 	cred := m.credResult
 	format := m.resolveOutputFormat()
-	profileName := firstNonEmpty(resolveString(keyAwsCliProfile, m.account), m.values[stepAwsCliProfile])
+	profileName := cmp.Or(resolveString(keyAwsCliProfile, m.account), m.values[stepAwsCliProfile])
 
 	return func() tea.Msg {
 		switch {
@@ -650,7 +658,7 @@ func (m tuiModel) writeOutput() tea.Cmd {
 
 func checkForUpdate() tea.Cmd {
 	return func() tea.Msg {
-		result := update.CheckLatestVersion(pkg.Version)
+		result := update.CheckLatestVersion(context.Background(), pkg.Version)
 		if result.Err != nil || result.LatestVersion == "" {
 			return updateCheckMsg{}
 		}
@@ -671,15 +679,13 @@ func (m tuiModel) View() string {
 	content := m.viewContent()
 
 	// Make content panel fill remaining width
-	contentWidth := m.width - sidebarWidth - 4 // border + padding
-	if contentWidth < 30 {
-		contentWidth = 30
-	}
+	contentWidth := max(m.width-sidebarWidth-4, 30) // border + padding
+	panelHeight := max(m.height-2, 0)
 
 	return lipgloss.JoinHorizontal(
 		lipgloss.Top,
-		sidebarStyle.Height(m.height-2).Render(sidebar),
-		contentStyle.Width(contentWidth).Height(m.height-2).Render(content),
+		sidebarStyle.Height(panelHeight).Render(sidebar),
+		contentStyle.Width(contentWidth).Height(panelHeight).Render(content),
 	)
 }
 
@@ -740,6 +746,9 @@ func (m tuiModel) viewContent() string {
 			"\u2191 Update available: v"+m.updateVersion+" \u2014 run: jc2aws --update",
 		) + "\n\n"
 	}
+	if m.notice != "" {
+		banner += warnStyle.Render("\u26a0 "+m.notice) + "\n\n"
+	}
 
 	switch m.compType {
 	case "select":
@@ -769,10 +778,10 @@ func (m tuiModel) viewSummary() string {
 	b.WriteString(titleStyle.Render("Summary") + "\n")
 	b.WriteString(mutedStyle.Render(strings.Repeat("\u2500", 40)) + "\n")
 
-	region := firstNonEmpty(resolveString(keyRegion, m.account), m.values[stepRegion])
-	email := firstNonEmpty(resolveString(keyEmail, m.account), m.values[stepEmail])
-	idpURL := firstNonEmpty(resolveString(keyIdpURL, m.account), m.values[stepIdpURL])
-	principalARN := firstNonEmpty(resolveString(keyPrincipalARN, m.account), m.values[stepPrincipalARN])
+	region := cmp.Or(resolveString(keyRegion, m.account), m.values[stepRegion])
+	email := cmp.Or(resolveString(keyEmail, m.account), m.values[stepEmail])
+	idpURL := cmp.Or(resolveString(keyIdpURL, m.account), m.values[stepIdpURL])
+	principalARN := cmp.Or(resolveString(keyPrincipalARN, m.account), m.values[stepPrincipalARN])
 	duration := resolveDuration(m.account)
 
 	rows := []struct {
@@ -840,7 +849,7 @@ func (m tuiModel) viewDoneResult() string {
 // accountInfoText builds the plain-text (no styling) account summary printed to
 // the normal terminal after the TUI exits. Never includes secret material.
 func (m tuiModel) accountInfoText() string {
-	region := firstNonEmpty(m.credResult.Region, resolveString(keyRegion, m.account), m.values[stepRegion])
+	region := cmp.Or(m.credResult.Region, resolveString(keyRegion, m.account), m.values[stepRegion])
 
 	var b strings.Builder
 	b.WriteString("Logged in successfully\n")
@@ -865,19 +874,15 @@ func writeKV(b *strings.Builder, label, value string) {
 }
 
 func (m tuiModel) stepDisplay(id stepID) string {
-	for _, s := range m.steps {
-		if s.id == id {
-			return s.value
-		}
+	if i := slices.IndexFunc(m.steps, func(s stepMeta) bool { return s.id == id }); i >= 0 {
+		return m.steps[i].value
 	}
 	return ""
 }
 
 func (m tuiModel) stepSource(id stepID) string {
-	for _, s := range m.steps {
-		if s.id == id {
-			return s.source
-		}
+	if i := slices.IndexFunc(m.steps, func(s stepMeta) bool { return s.id == id }); i >= 0 {
+		return m.steps[i].source
 	}
 	return ""
 }
@@ -886,18 +891,9 @@ func (m tuiModel) stepSource(id stepID) string {
 // Helpers
 // ---------------------------------------------------------------------------
 
-func firstNonEmpty(vals ...string) string {
-	for _, v := range vals {
-		if v != "" {
-			return v
-		}
-	}
-	return ""
-}
-
 func truncateARN(s string) string {
-	if len(s) > 30 {
-		return "..." + s[len(s)-27:]
+	if r := []rune(s); len(r) > 30 {
+		return "..." + string(r[len(r)-27:])
 	}
 	return s
 }

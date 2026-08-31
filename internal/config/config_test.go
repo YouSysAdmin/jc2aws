@@ -50,40 +50,31 @@ accounts:
 	}
 
 	// Test default values
-	if config.GetDefaultEmail() != "default@example.com" {
-		t.Errorf("Expected default email 'default@example.com', got '%s'", config.GetDefaultEmail())
+	if config.DefaultEmail != "default@example.com" {
+		t.Errorf("Expected default email 'default@example.com', got '%s'", config.DefaultEmail)
 	}
 
-	if config.GetDefaultPassword() != "defaultpass123" {
-		t.Errorf("Expected default password 'defaultpass123', got '%s'", config.GetDefaultPassword())
+	if config.DefaultPassword != "defaultpass123" {
+		t.Errorf("Expected default password 'defaultpass123', got '%s'", config.DefaultPassword)
 	}
 
-	if config.GetDefaultMFATokenSecret() != "JBSWY3DPEHPK3PXP" {
-		t.Errorf("Expected default MFA secret 'JBSWY3DPEHPK3PXP', got '%s'", config.GetDefaultMFATokenSecret())
+	if config.DefaultMFATokenSecret != "JBSWY3DPEHPK3PXP" {
+		t.Errorf("Expected default MFA secret 'JBSWY3DPEHPK3PXP', got '%s'", config.DefaultMFATokenSecret)
 	}
 
-	if config.GetDefaultFormat() != "env" {
-		t.Errorf("Expected default format 'env', got '%s'", config.GetDefaultFormat())
+	if config.DefaultFormat != "env" {
+		t.Errorf("Expected default format 'env', got '%s'", config.DefaultFormat)
 	}
 
-	if config.GetTUIDoneAction() != "menu" {
-		t.Errorf("Expected TUI done action 'menu', got '%s'", config.GetTUIDoneAction())
+	if config.TUIDoneAction != "menu" {
+		t.Errorf("Expected TUI done action 'menu', got '%s'", config.TUIDoneAction)
 	}
 
-	// Test GetAccountsNameList
-	accountNames, err := config.GetAccountsNameList()
-	if err != nil {
-		t.Fatalf("Failed to get account names: %v", err)
-	}
-
+	// Test account names
 	expectedNames := []string{"dev-account", "prod-account"}
-	if len(accountNames) != len(expectedNames) {
-		t.Errorf("Expected %d account names, got %d", len(expectedNames), len(accountNames))
-	}
-
 	for i, name := range expectedNames {
-		if i >= len(accountNames) || accountNames[i] != name {
-			t.Errorf("Expected account name %s at index %d, got %s", name, i, accountNames[i])
+		if i >= len(config.Accounts) || config.Accounts[i].Name != name {
+			t.Errorf("Expected account name %s at index %d", name, i)
 		}
 	}
 
@@ -163,9 +154,8 @@ accounts: []
 		t.Fatalf("Failed to load config: %v", err)
 	}
 
-	_, err = config.GetAccountsNameList()
-	if err == nil {
-		t.Error("Expected error for empty accounts list, got nil")
+	if len(config.GetAccounts()) != 0 {
+		t.Error("Expected empty accounts list")
 	}
 }
 
@@ -193,19 +183,6 @@ accounts:
 	_, err = NewConfig(tmpFile.Name())
 	if err == nil {
 		t.Error("Expected error for invalid YAML, got nil")
-	}
-}
-
-func TestConfigGetDefaultPasswordBug(t *testing.T) {
-	// This test demonstrates the bug in GetDefaultPassword method
-	config := &Config{
-		DefaultEmail:    "test@example.com",
-		DefaultPassword: "secret123",
-	}
-
-	// Bug: GetDefaultPassword returns c.DefaultEmail instead of c.DefaultPassword
-	if config.GetDefaultPassword() != "secret123" {
-		t.Errorf("Bug detected: GetDefaultPassword() should return 'secret123', got '%s'", config.GetDefaultPassword())
 	}
 }
 

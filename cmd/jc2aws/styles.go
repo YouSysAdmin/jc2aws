@@ -34,9 +34,6 @@ var (
 	highlightStyle = lipgloss.NewStyle().
 			Foreground(colorHighlight)
 
-	cyanStyle = lipgloss.NewStyle().
-			Foreground(colorCyan)
-
 	warnStyle = lipgloss.NewStyle().
 			Foreground(colorWarn)
 

@@ -9,7 +9,7 @@ import (
 )
 
 // ---------------------------------------------------------------------------
-// selectModel - a filterable selection list (replaces promptui.Select)
+// selectModel - a filterable selection list
 // ---------------------------------------------------------------------------
 
 // detailPair is an ordered key-value pair for the item information panel.
@@ -33,15 +33,20 @@ type selectModel struct {
 	chosen   int // -1 until chosen
 }
 
-func newSelectModel(label string, items []selectItem) selectModel {
-	indices := make([]int, len(items))
-	for i := range items {
+// identityIndices returns [0, 1, ..., n-1].
+func identityIndices(n int) []int {
+	indices := make([]int, n)
+	for i := range indices {
 		indices[i] = i
 	}
+	return indices
+}
+
+func newSelectModel(label string, items []selectItem) selectModel {
 	return selectModel{
 		label:    label,
 		items:    items,
-		filtered: indices,
+		filtered: identityIndices(len(items)),
 		cursor:   0,
 		chosen:   -1,
 	}
@@ -82,11 +87,7 @@ func (m selectModel) Update(msg tea.Msg) (selectModel, tea.Cmd) {
 
 func (m selectModel) applyFilter() selectModel {
 	if m.filter == "" {
-		indices := make([]int, len(m.items))
-		for i := range m.items {
-			indices[i] = i
-		}
-		m.filtered = indices
+		m.filtered = identityIndices(len(m.items))
 	} else {
 		var filtered []int
 		needle := strings.ToLower(m.filter)
@@ -176,7 +177,6 @@ type inputModel struct {
 	validator func(string) error
 	err       string
 	submitted bool
-	isMasked  bool
 }
 
 func newInputModel(label string, masked bool, validator func(string) error) inputModel {
@@ -195,7 +195,6 @@ func newInputModel(label string, masked bool, validator func(string) error) inpu
 		label:     label,
 		input:     ti,
 		validator: validator,
-		isMasked:  masked,
 	}
 }
 

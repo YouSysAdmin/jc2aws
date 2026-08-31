@@ -1,25 +1,30 @@
 package validators
 
 import (
+	"slices"
 	"testing"
 )
 
-func TestMapContainsAllKeys(t *testing.T) {
+func TestNamesContainsAllKeys(t *testing.T) {
 	expectedKeys := []string{
 		"skip", "email", "password", "idp-url",
 		"role-arn", "principal-arn", "region", "mfa", "output-format",
 	}
+	names := Names()
 	for _, key := range expectedKeys {
-		if _, ok := Map[key]; !ok {
-			t.Errorf("Map missing expected key %q", key)
+		if !slices.Contains(names, key) {
+			t.Errorf("Names() missing expected key %q", key)
 		}
 	}
 }
 
-func TestGetReturnsNilForUnknown(t *testing.T) {
+func TestGetReturnsSkipForUnknown(t *testing.T) {
 	fn := Get("nonexistent-key")
-	if fn != nil {
-		t.Error("expected nil for unknown key, got a function")
+	if fn == nil {
+		t.Fatal("expected a safe validator for unknown key, got nil")
+	}
+	if err := fn("anything"); err != nil {
+		t.Errorf("unknown-key validator should accept any input, got: %v", err)
 	}
 }
 
@@ -92,7 +97,6 @@ func TestIdpURLValidator(t *testing.T) {
 
 	valid := []string{
 		"https://sso.jumpcloud.com/saml2/my-aws-prod",
-		"http://localhost:8080/path",
 	}
 	for _, v := range valid {
 		if err := fn(v); err != nil {
@@ -104,6 +108,8 @@ func TestIdpURLValidator(t *testing.T) {
 		"",
 		"not a url",
 		"://missing-scheme",
+		"http://insecure.example.com/saml", // plain http is not allowed
+		"/relative/path",
 	}
 	for _, v := range invalid {
 		if err := fn(v); err == nil {

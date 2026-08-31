@@ -5,6 +5,7 @@ import (
 	"archive/zip"
 	"bytes"
 	"compress/gzip"
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -219,7 +220,7 @@ func TestCheckLatestVersion_UpToDate(t *testing.T) {
 }
 
 func TestCheckLatestVersion_DevBuild(t *testing.T) {
-	result := CheckLatestVersion("")
+	result := CheckLatestVersion(t.Context(), "")
 	if result.Err != nil {
 		t.Fatalf("unexpected error: %v", result.Err)
 	}
@@ -247,7 +248,7 @@ func checkLatestVersionFromURL(apiURL, currentVersion string) CheckResult {
 		return CheckResult{}
 	}
 
-	rel, err := fetchRelease(apiURL)
+	rel, err := fetchRelease(context.Background(), apiURL)
 	if err != nil {
 		return CheckResult{CurrentVersion: currentVersion, Err: err}
 	}
@@ -297,14 +298,14 @@ func TestVerifyChecksum(t *testing.T) {
 	}
 
 	t.Run("valid checksum", func(t *testing.T) {
-		err := verifyChecksum(assets, archivePath, "jc2aws_v3.0.1_linux_amd64.tar.gz")
+		err := verifyChecksum(t.Context(), assets, archivePath, "jc2aws_v3.0.1_linux_amd64.tar.gz")
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
 	})
 
 	t.Run("wrong asset name", func(t *testing.T) {
-		err := verifyChecksum(assets, archivePath, "nonexistent.tar.gz")
+		err := verifyChecksum(t.Context(), assets, archivePath, "nonexistent.tar.gz")
 		if err == nil {
 			t.Fatal("expected error for missing checksum entry, got nil")
 		}
@@ -314,7 +315,7 @@ func TestVerifyChecksum(t *testing.T) {
 		tampered := writeTempFile(t, []byte("tampered content"))
 		defer os.Remove(tampered)
 
-		err := verifyChecksum(assets, tampered, "jc2aws_v3.0.1_linux_amd64.tar.gz")
+		err := verifyChecksum(t.Context(), assets, tampered, "jc2aws_v3.0.1_linux_amd64.tar.gz")
 		if err == nil {
 			t.Fatal("expected checksum mismatch error, got nil")
 		}
@@ -324,7 +325,7 @@ func TestVerifyChecksum(t *testing.T) {
 	})
 
 	t.Run("missing checksums asset", func(t *testing.T) {
-		err := verifyChecksum(nil, archivePath, "jc2aws_v3.0.1_linux_amd64.tar.gz")
+		err := verifyChecksum(t.Context(), nil, archivePath, "jc2aws_v3.0.1_linux_amd64.tar.gz")
 		if err == nil {
 			t.Fatal("expected error for missing checksums.sha256 asset, got nil")
 		}
@@ -591,7 +592,7 @@ func TestDownloadAndReplace(t *testing.T) {
 func downloadAndReplaceFromURL(apiURL, currentVersion string, w io.Writer) error {
 	fmt.Fprintln(w, "Checking for latest version...")
 
-	rel, err := fetchRelease(apiURL)
+	rel, err := fetchRelease(context.Background(), apiURL)
 	if err != nil {
 		return fmt.Errorf("failed to fetch release info: %w", err)
 	}
@@ -613,7 +614,7 @@ func downloadAndReplaceFromURL(apiURL, currentVersion string, w io.Writer) error
 
 	fmt.Fprintf(w, "Downloading jc2aws v%s for %s/%s...\n", latest, runtime.GOOS, runtime.GOARCH)
 
-	archivePath, err := downloadFile(assetURL)
+	archivePath, err := downloadFile(context.Background(), assetURL)
 	if err != nil {
 		return fmt.Errorf("failed to download release: %w", err)
 	}
@@ -621,7 +622,7 @@ func downloadAndReplaceFromURL(apiURL, currentVersion string, w io.Writer) error
 
 	fmt.Fprintln(w, "Verifying checksum...")
 
-	if err := verifyChecksum(rel.Assets, archivePath, assetName); err != nil {
+	if err := verifyChecksum(context.Background(), rel.Assets, archivePath, assetName); err != nil {
 		return fmt.Errorf("checksum verification failed: %w", err)
 	}
 

@@ -4,16 +4,20 @@ import (
 	"archive/tar"
 	"archive/zip"
 	"bufio"
+	"cmp"
 	"compress/gzip"
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
 	"os"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -27,7 +31,21 @@ const (
 	RepoURL = "https://github.com/YouSysAdmin/jc2aws"
 
 	binaryName = "jc2aws"
+
+	// apiTimeout bounds the GitHub API and checksum requests.
+	apiTimeout = 30 * time.Second
+	// downloadTimeout bounds the release archive download, which can be
+	// large and slow; it must not share the short API budget.
+	downloadTimeout = 10 * time.Minute
+
+	// maxBinarySize caps how much data is extracted from a release archive,
+	// protecting against decompression bombs.
+	maxBinarySize = 512 << 20 // 512 MiB
 )
+
+// userAgent identifies the updater to the GitHub API (unauthenticated
+// requests without a User-Agent are rejected or rate-limited).
+const userAgent = "jc2aws-updater (+" + RepoURL + ")"
 
 // Release holds version info and asset URLs from a GitHub release.
 type Release struct {
@@ -55,17 +73,24 @@ type CheckResult struct {
 // CheckLatestVersion fetches the latest release from GitHub and compares it
 // against currentVersion. If currentVersion is empty (dev build), no check
 // is performed and an empty result is returned.
-func CheckLatestVersion(currentVersion string) CheckResult {
+func CheckLatestVersion(ctx context.Context, currentVersion string) CheckResult {
 	if currentVersion == "" {
 		return CheckResult{}
 	}
 
-	rel, err := fetchRelease(ReleaseAPIURL)
+	rel, err := fetchRelease(ctx, ReleaseAPIURL)
 	if err != nil {
 		return CheckResult{CurrentVersion: currentVersion, Err: err}
 	}
 
 	latest := stripV(rel.TagName)
+	if _, _, _, err := parseVersion(latest); err != nil {
+		return CheckResult{
+			CurrentVersion: currentVersion,
+			Err:            fmt.Errorf("cannot parse latest release tag %q: %w", rel.TagName, err),
+		}
+	}
+
 	if CompareVersions(currentVersion, latest) < 0 {
 		return CheckResult{
 			CurrentVersion: currentVersion,
@@ -78,15 +103,18 @@ func CheckLatestVersion(currentVersion string) CheckResult {
 
 // DownloadAndReplace downloads the latest release from GitHub and replaces
 // the currently running binary. Progress messages are written to w.
-func DownloadAndReplace(currentVersion string, w io.Writer) error {
+func DownloadAndReplace(ctx context.Context, currentVersion string, w io.Writer) error {
 	fmt.Fprintln(w, "Checking for latest version...")
 
-	rel, err := fetchRelease(ReleaseAPIURL)
+	rel, err := fetchRelease(ctx, ReleaseAPIURL)
 	if err != nil {
 		return fmt.Errorf("failed to fetch release info: %w", err)
 	}
 
 	latest := stripV(rel.TagName)
+	if _, _, _, err := parseVersion(latest); err != nil {
+		return fmt.Errorf("cannot parse latest release tag %q: %w", rel.TagName, err)
+	}
 
 	if currentVersion == "" {
 		fmt.Fprintln(w, "Warning: development build, current version unknown")
@@ -103,7 +131,7 @@ func DownloadAndReplace(currentVersion string, w io.Writer) error {
 
 	fmt.Fprintf(w, "Downloading jc2aws v%s for %s/%s...\n", latest, runtime.GOOS, runtime.GOARCH)
 
-	archivePath, err := downloadFile(assetURL)
+	archivePath, err := downloadFile(ctx, assetURL)
 	if err != nil {
 		return fmt.Errorf("failed to download release: %w", err)
 	}
@@ -111,7 +139,7 @@ func DownloadAndReplace(currentVersion string, w io.Writer) error {
 
 	fmt.Fprintln(w, "Verifying checksum...")
 
-	if err := verifyChecksum(rel.Assets, archivePath, assetName); err != nil {
+	if err := verifyChecksum(ctx, rel.Assets, archivePath, assetName); err != nil {
 		return fmt.Errorf("checksum verification failed: %w", err)
 	}
 
@@ -161,12 +189,12 @@ func CompareVersions(a, b string) int {
 	}
 
 	if aMaj != bMaj {
-		return cmpInt(aMaj, bMaj)
+		return cmp.Compare(aMaj, bMaj)
 	}
 	if aMin != bMin {
-		return cmpInt(aMin, bMin)
+		return cmp.Compare(aMin, bMin)
 	}
-	return cmpInt(aPat, bPat)
+	return cmp.Compare(aPat, bPat)
 }
 
 // BuildAssetName constructs the expected release asset filename for the
@@ -174,8 +202,12 @@ func CompareVersions(a, b string) int {
 // convention.
 func BuildAssetName(version, goos, goarch string) string {
 	arch := goarch
-	if goos == "linux" && goarch == "arm" {
+	// Mirror GoReleaser's name_template arch overrides.
+	switch goarch {
+	case "arm":
 		arch = "armv7"
+	case "386":
+		arch = "i386"
 	}
 
 	ext := ".tar.gz"
@@ -191,15 +223,23 @@ func BuildAssetName(version, goos, goarch string) string {
 // ---------------------------------------------------------------------------
 
 var httpClient = &http.Client{
-	Timeout: 30 * time.Second,
+	Transport: &http.Transport{
+		TLSHandshakeTimeout:   10 * time.Second,
+		ResponseHeaderTimeout: 30 * time.Second,
+		ForceAttemptHTTP2:     true,
+	},
 }
 
-func fetchRelease(apiURL string) (Release, error) {
-	req, err := http.NewRequest(http.MethodGet, apiURL, nil)
+func fetchRelease(ctx context.Context, apiURL string) (Release, error) {
+	ctx, cancel := context.WithTimeout(ctx, apiTimeout)
+	defer cancel()
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, apiURL, nil)
 	if err != nil {
 		return Release{}, err
 	}
 	req.Header.Set("Accept", "application/vnd.github+json")
+	req.Header.Set("User-Agent", userAgent)
 
 	resp, err := httpClient.Do(req)
 	if err != nil {
@@ -220,16 +260,23 @@ func fetchRelease(apiURL string) (Release, error) {
 }
 
 func findAssetURL(assets []Asset, name string) string {
-	for _, a := range assets {
-		if a.Name == name {
-			return a.BrowserDownloadURL
-		}
+	if i := slices.IndexFunc(assets, func(a Asset) bool { return a.Name == name }); i >= 0 {
+		return assets[i].BrowserDownloadURL
 	}
 	return ""
 }
 
-func downloadFile(url string) (string, error) {
-	resp, err := httpClient.Get(url)
+func downloadFile(ctx context.Context, url string) (string, error) {
+	ctx, cancel := context.WithTimeout(ctx, downloadTimeout)
+	defer cancel()
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		return "", err
+	}
+	req.Header.Set("User-Agent", userAgent)
+
+	resp, err := httpClient.Do(req)
 	if err != nil {
 		return "", err
 	}
@@ -243,23 +290,36 @@ func downloadFile(url string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	defer tmp.Close()
 
 	if _, err := io.Copy(tmp, resp.Body); err != nil {
+		tmp.Close()
 		os.Remove(tmp.Name())
 		return "", err
+	}
+	if err := tmp.Close(); err != nil {
+		os.Remove(tmp.Name())
+		return "", fmt.Errorf("failed to write %s: %w", tmp.Name(), err)
 	}
 
 	return tmp.Name(), nil
 }
 
-func verifyChecksum(assets []Asset, archivePath, assetName string) error {
+func verifyChecksum(ctx context.Context, assets []Asset, archivePath, assetName string) error {
 	checksumURL := findAssetURL(assets, "checksums.sha256")
 	if checksumURL == "" {
 		return fmt.Errorf("checksums.sha256 not found in release assets")
 	}
 
-	resp, err := httpClient.Get(checksumURL)
+	ctx, cancel := context.WithTimeout(ctx, apiTimeout)
+	defer cancel()
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, checksumURL, nil)
+	if err != nil {
+		return err
+	}
+	req.Header.Set("User-Agent", userAgent)
+
+	resp, err := httpClient.Do(req)
 	if err != nil {
 		return fmt.Errorf("failed to download checksums: %w", err)
 	}
@@ -289,10 +349,14 @@ func verifyChecksum(assets []Asset, archivePath, assetName string) error {
 func parseChecksumFile(r io.Reader, targetName string) (string, error) {
 	scanner := bufio.NewScanner(r)
 	for scanner.Scan() {
-		line := scanner.Text()
-		// Format: "<hex>  <filename>"
-		parts := strings.Fields(line)
-		if len(parts) == 2 && parts[1] == targetName {
+		// Format: "<hex>  <filename>" — the name may carry a leading "*"
+		// (binary-mode marker) or a directory prefix.
+		parts := strings.Fields(scanner.Text())
+		if len(parts) < 2 {
+			continue
+		}
+		name := strings.TrimPrefix(parts[len(parts)-1], "*")
+		if filepath.Base(name) == targetName {
 			return parts[0], nil
 		}
 	}
@@ -315,6 +379,18 @@ func hashFile(path string) (string, error) {
 	}
 
 	return hex.EncodeToString(h.Sum(nil)), nil
+}
+
+// readLimited reads all of r, failing if the content exceeds maxBinarySize.
+func readLimited(r io.Reader) ([]byte, error) {
+	data, err := io.ReadAll(io.LimitReader(r, maxBinarySize+1))
+	if err != nil {
+		return nil, err
+	}
+	if len(data) > maxBinarySize {
+		return nil, fmt.Errorf("extracted file exceeds %d bytes", maxBinarySize)
+	}
+	return data, nil
 }
 
 func extractBinary(archivePath, binaryName string) ([]byte, error) {
@@ -340,7 +416,7 @@ func extractTarGz(archivePath, binaryName string) ([]byte, error) {
 	tr := tar.NewReader(gz)
 	for {
 		hdr, err := tr.Next()
-		if err == io.EOF {
+		if errors.Is(err, io.EOF) {
 			break
 		}
 		if err != nil {
@@ -349,7 +425,7 @@ func extractTarGz(archivePath, binaryName string) ([]byte, error) {
 
 		// Match the binary by base name (archives may have directory prefixes)
 		if filepath.Base(hdr.Name) == binaryName && hdr.Typeflag == tar.TypeReg {
-			data, err := io.ReadAll(tr)
+			data, err := readLimited(tr)
 			if err != nil {
 				return nil, fmt.Errorf("error reading binary from archive: %w", err)
 			}
@@ -368,19 +444,22 @@ func extractZip(archivePath, binaryName string) ([]byte, error) {
 	defer r.Close()
 
 	for _, f := range r.File {
-		if filepath.Base(f.Name) == binaryName {
-			rc, err := f.Open()
-			if err != nil {
-				return nil, fmt.Errorf("error opening %s in zip: %w", f.Name, err)
-			}
-			defer rc.Close()
-
-			data, err := io.ReadAll(rc)
-			if err != nil {
-				return nil, fmt.Errorf("error reading binary from zip: %w", err)
-			}
-			return data, nil
+		// Only regular files count — a directory entry named like the binary
+		// would otherwise be extracted as zero bytes.
+		if filepath.Base(f.Name) != binaryName || !f.FileInfo().Mode().IsRegular() {
+			continue
 		}
+
+		rc, err := f.Open()
+		if err != nil {
+			return nil, fmt.Errorf("error opening %s in zip: %w", f.Name, err)
+		}
+		data, err := readLimited(rc)
+		rc.Close()
+		if err != nil {
+			return nil, fmt.Errorf("error reading binary from zip: %w", err)
+		}
+		return data, nil
 	}
 
 	return nil, fmt.Errorf("binary %s not found in zip archive", binaryName)
@@ -403,13 +482,17 @@ func atomicReplace(exePath string, data []byte) error {
 	}
 	mode := info.Mode().Perm()
 
-	dir := filepath.Dir(exePath)
 	newPath := exePath + ".new"
 	oldPath := exePath + ".old"
 
 	// Write the new binary to a temp location in the same directory
 	if err := os.WriteFile(newPath, data, mode); err != nil {
-		return fmt.Errorf("failed to write new binary to %s: %w", dir, err)
+		return fmt.Errorf("failed to write new binary to %s: %w", newPath, err)
+	}
+	// os.WriteFile mode is subject to umask; enforce the intended permissions.
+	if err := os.Chmod(newPath, mode); err != nil {
+		os.Remove(newPath)
+		return fmt.Errorf("failed to set permissions on %s: %w", newPath, err)
 	}
 
 	// Rename the current binary to .old, then the new one into place
@@ -424,7 +507,8 @@ func atomicReplace(exePath string, data []byte) error {
 		return fmt.Errorf("failed to move new binary into place: %w", err)
 	}
 
-	// Clean up the old binary
+	// Clean up the old binary. Best effort: on Windows the running executable
+	// cannot be removed, leaving a .old file behind.
 	os.Remove(oldPath)
 
 	return nil
@@ -436,25 +520,26 @@ func stripV(version string) string {
 
 func parseVersion(s string) (major, minor, patch int, err error) {
 	s = stripV(s)
-	parts := strings.SplitN(s, ".", 3)
-	if len(parts) != 3 {
+	majorStr, rest, ok := strings.Cut(s, ".")
+	if !ok {
+		return 0, 0, 0, fmt.Errorf("invalid version format: %s", s)
+	}
+	minorStr, patchStr, ok := strings.Cut(rest, ".")
+	if !ok {
 		return 0, 0, 0, fmt.Errorf("invalid version format: %s", s)
 	}
 
-	major, err = strconv.Atoi(parts[0])
+	major, err = strconv.Atoi(majorStr)
 	if err != nil {
 		return 0, 0, 0, fmt.Errorf("invalid major version: %w", err)
 	}
-	minor, err = strconv.Atoi(parts[1])
+	minor, err = strconv.Atoi(minorStr)
 	if err != nil {
 		return 0, 0, 0, fmt.Errorf("invalid minor version: %w", err)
 	}
 
 	// Handle pre-release suffixes like "1.0.0-pre" — take only the numeric part
-	patchStr := parts[2]
-	if idx := strings.IndexByte(patchStr, '-'); idx >= 0 {
-		patchStr = patchStr[:idx]
-	}
+	patchStr, _, _ = strings.Cut(patchStr, "-")
 	patch, err = strconv.Atoi(patchStr)
 	if err != nil {
 		return 0, 0, 0, fmt.Errorf("invalid patch version: %w", err)
@@ -463,34 +548,21 @@ func parseVersion(s string) (major, minor, patch int, err error) {
 	return major, minor, patch, nil
 }
 
-func cmpInt(a, b int) int {
-	if a < b {
-		return -1
-	}
-	if a > b {
-		return 1
-	}
-	return 0
-}
-
 // ---------------------------------------------------------------------------
 // Testing helpers
 // ---------------------------------------------------------------------------
 
-// SetHTTPClient replaces the package-level HTTP client. Intended for tests.
+// SetHTTPClient replaces the package-level HTTP client.
+// Intended for tests only; not safe to call concurrently with an in-flight
+// check or download.
 func SetHTTPClient(c *http.Client) {
 	httpClient = c
 }
 
-// SetExecPathFunc overrides the function used to determine the current
-// executable path. Intended for tests. Pass nil to restore the default.
+// execPathFunc overrides the function used to determine the current
+// executable path. Intended for tests; nil means the real path is used.
 var execPathFunc func() (string, error)
 
-func init() {
-	execPathFunc = nil
-}
-
-// overridden in tests
 func getExecPath() (string, error) {
 	if execPathFunc != nil {
 		return execPathFunc()

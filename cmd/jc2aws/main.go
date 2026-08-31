@@ -1,6 +1,8 @@
 package main
 
 import (
+	"cmp"
+	"context"
 	"errors"
 	"fmt"
 	"os"
@@ -12,6 +14,7 @@ import (
 	"github.com/spf13/viper"
 
 	"github.com/yousysadmin/jc2aws/internal/config"
+	"github.com/yousysadmin/jc2aws/internal/validators"
 	"github.com/yousysadmin/jc2aws/pkg"
 	"github.com/yousysadmin/jc2aws/pkg/update"
 )
@@ -102,9 +105,6 @@ func resolveDuration(acc *config.Account) int {
 	if acc != nil && acc.Duration != 0 {
 		return acc.Duration
 	}
-	if d := viper.GetInt(keyDuration); d != 0 {
-		return d
-	}
 	return defaultDuration
 }
 
@@ -131,14 +131,22 @@ func main() {
 
 	// Explicit env var bindings for names that don't match the flag -> env
 	// for backward compatibly.
-	viper.BindEnv(keyRegion, "J2A_REGION", "J2A_AWS_REGION")
-	viper.BindEnv(keyConfig, "J2A_CONFIG")
+	if err := viper.BindEnv(keyRegion, "J2A_REGION", "J2A_AWS_REGION"); err != nil {
+		fmt.Fprintf(os.Stderr, "Error: failed to bind env var for %s: %v\n", keyRegion, err)
+		os.Exit(1)
+	}
+	if err := viper.BindEnv(keyConfig, "J2A_CONFIG"); err != nil {
+		fmt.Fprintf(os.Stderr, "Error: failed to bind env var for %s: %v\n", keyConfig, err)
+		os.Exit(1)
+	}
 
 	rootCmd := &cobra.Command{
-		Use:     filepath.Base(os.Args[0]), //"jc2aws-tui",
-		Short:   "Get AWS credentials via JumpCloud SSO",
-		Long:    "Obtaining temporary AWS credentials via JumpCloud SAML authentication.",
-		Version: pkg.Version,
+		Use:          filepath.Base(os.Args[0]), //"jc2aws-tui",
+		Short:        "Get AWS credentials via JumpCloud SSO",
+		Long:         "Obtaining temporary AWS credentials via JumpCloud SAML authentication.",
+		Version:      pkg.Version,
+		Args:         cobra.NoArgs,
+		SilenceUsage: true,
 		PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
 			// Get config file path from Viper
 			cfg.configFilePath = viper.GetString(keyConfig)
@@ -184,7 +192,22 @@ func main() {
 		},
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if cfg.update {
-				return update.DownloadAndReplace(pkg.Version, os.Stdout)
+				return update.DownloadAndReplace(cmd.Context(), pkg.Version, os.Stdout)
+			}
+
+			// J2A_SHELL env var: treat as output-format=shell (backward compat).
+			// Explicit flags take priority over env vars, so an explicit
+			// --output-format is never overridden here.
+			if v := os.Getenv("J2A_SHELL"); (v == "true" || v == "1") && !cmd.Flags().Changed(keyOutputFormat) {
+				viper.Set(keyOutputFormat, "shell")
+			}
+
+			// J2A_SHELL_SCRIPT env var: set shell script path (implies shell format)
+			if v := os.Getenv("J2A_SHELL_SCRIPT"); v != "" {
+				cfg.shellScript = v
+				if !cmd.Flags().Changed(keyOutputFormat) {
+					viper.Set(keyOutputFormat, "shell")
+				}
 			}
 
 			// -s / --shell is a convenience alias for --output-format=shell
@@ -195,17 +218,6 @@ func main() {
 			// --shell-script implies shell output format
 			if cmd.Flags().Changed(keyShellScript) {
 				cfg.shellScript = viper.GetString(keyShellScript)
-				viper.Set(keyOutputFormat, "shell")
-			}
-
-			// J2A_SHELL env var: treat as output-format=shell (backward compat)
-			if v := os.Getenv("J2A_SHELL"); v == "true" || v == "1" {
-				viper.Set(keyOutputFormat, "shell")
-			}
-
-			// J2A_SHELL_SCRIPT env var: set shell script path (implies shell format)
-			if v := os.Getenv("J2A_SHELL_SCRIPT"); v != "" {
-				cfg.shellScript = v
 				viper.Set(keyOutputFormat, "shell")
 			}
 
@@ -228,7 +240,7 @@ func main() {
 	flags.String(keyRoleARN, "", "AWS Role ARN")
 	flags.String(keyPrincipalARN, "", "AWS Identity provider ARN")
 	flags.StringP(keyRegion, "r", "", "AWS region")
-	flags.IntP(keyDuration, "d", 3600, "AWS credential expiration time in seconds")
+	flags.IntP(keyDuration, "d", defaultDuration, "AWS credential expiration time in seconds")
 	flags.StringP(keyAccount, "a", "", "Account name from config")
 	flags.StringP(keyOutputFormat, "f", "cli", "Credential output format (cli, env, cli-stdout, env-stdout, shell)")
 	flags.String(keyAwsCliProfile, "", "AWS CLI profile name")
@@ -241,7 +253,10 @@ func main() {
 	flags.Bool(keyNoUpdateCheck, false, "Disable automatic update check")
 
 	// Bind all flags to Viper
-	viper.BindPFlags(flags)
+	if err := viper.BindPFlags(flags); err != nil {
+		fmt.Fprintf(os.Stderr, "Error: failed to bind flags: %v\n", err)
+		os.Exit(1)
+	}
 
 	if err := rootCmd.Execute(); err != nil {
 		os.Exit(1)
@@ -255,7 +270,7 @@ func runInteractive(cfg *appConfig) error {
 
 	finalModel, err := p.Run()
 	if err != nil {
-		return fmt.Errorf("Error: %w", err)
+		return err
 	}
 
 	fm, ok := finalModel.(tuiModel)
@@ -278,7 +293,7 @@ func runInteractive(cfg *appConfig) error {
 	}
 
 	format := fm.resolveOutputFormat()
-	profileName := firstNonEmpty(
+	profileName := cmp.Or(
 		resolveString(keyAwsCliProfile, fm.account),
 		fm.values[stepAwsCliProfile],
 	)
@@ -293,13 +308,13 @@ func runInteractive(cfg *appConfig) error {
 
 	// Shell: summary to stderr (stdout belongs to the subshell), then launch.
 	if format == "shell" {
-		printAccountInfo(os.Stderr, summary)
+		fmt.Fprint(os.Stderr, summary)
 		return launchShell(*fm.credResult, cfg.shellScript)
 	}
 
 	// File-based formats (cli, env): files were already written inside the TUI.
 	// Just print the summary. stdout is free.
-	printAccountInfo(os.Stdout, summary)
+	fmt.Fprint(os.Stdout, summary)
 	return nil
 }
 
@@ -316,7 +331,7 @@ func runHeadless(cfg *appConfig) error {
 		}
 		found, err := cfg.config.FindAccountByName(accountName)
 		if err != nil {
-			return fmt.Errorf("account %q not found in config", accountName)
+			return fmt.Errorf("failed to resolve --account: %w", err)
 		}
 		acc = &found
 	}
@@ -335,10 +350,13 @@ func runHeadless(cfg *appConfig) error {
 	// Resolve --role-name to ARN if needed
 	if roleARN == "" {
 		roleName := viper.GetString(keyRoleName)
-		if roleName != "" && acc != nil {
+		if roleName != "" {
+			if acc == nil {
+				return fmt.Errorf("--role-name requires --account to look the role up in")
+			}
 			role, err := acc.FindAWSRoleArnByName(roleName)
 			if err != nil {
-				return fmt.Errorf("role %q not found in account %q", roleName, accountName)
+				return fmt.Errorf("failed to resolve --role-name in account %q: %w", accountName, err)
 			}
 			roleARN = role.Arn
 		}
@@ -362,15 +380,24 @@ func runHeadless(cfg *appConfig) error {
 		}
 	}
 
+	// Validate output format and region up front, before spending a full
+	// authentication round-trip.
+	format := viper.GetString(keyOutputFormat)
+	if err := validators.Get("output-format")(format); err != nil {
+		return err
+	}
+	if err := validators.Get("region")(region); err != nil {
+		// The built-in region list can lag behind AWS; warn instead of blocking.
+		fmt.Fprintf(os.Stderr, "Warning: region %q is not in the known region list; proceeding anyway\n", region)
+	}
+
 	// Fetch credentials
-	cred, err := getCredentials(email, password, idpURL, mfaToken, principalARN, roleARN, region, duration)
+	cred, err := getCredentials(context.Background(), email, password, idpURL, mfaToken, principalARN, roleARN, region, duration)
 	if err != nil {
 		return fmt.Errorf("credential error: %w", err)
 	}
 
 	// Handle output
-	format := viper.GetString(keyOutputFormat)
-
 	if format == "shell" {
 		return launchShell(cred, cfg.shellScript)
 	}

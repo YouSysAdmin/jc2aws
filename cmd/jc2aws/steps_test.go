@@ -1,7 +1,10 @@
 package main
 
 import (
+	"cmp"
 	"testing"
+
+	"github.com/charmbracelet/bubbles/textinput"
 
 	"github.com/yousysadmin/jc2aws/internal/aws"
 	"github.com/yousysadmin/jc2aws/internal/config"
@@ -201,8 +204,9 @@ func TestBuildInputFactories(t *testing.T) {
 			if m.label != tt.label {
 				t.Errorf("expected label %q, got %q", tt.label, m.label)
 			}
-			if m.isMasked != tt.masked {
-				t.Errorf("expected masked=%v, got %v", tt.masked, m.isMasked)
+			masked := m.input.EchoMode == textinput.EchoPassword
+			if masked != tt.masked {
+				t.Errorf("expected masked=%v, got %v", tt.masked, masked)
 			}
 		})
 	}
@@ -241,7 +245,7 @@ func TestRegionListForAccountNilAccount(t *testing.T) {
 // Helper function tests
 // ---------------------------------------------------------------------------
 
-func TestFirstNonEmpty(t *testing.T) {
+func TestCmpOrFallbackChain(t *testing.T) {
 	tests := []struct {
 		name   string
 		args   []string
@@ -257,7 +261,7 @@ func TestFirstNonEmpty(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result := firstNonEmpty(tt.args...)
+			result := cmp.Or(tt.args...)
 			if result != tt.expect {
 				t.Errorf("expected %q, got %q", tt.expect, result)
 			}

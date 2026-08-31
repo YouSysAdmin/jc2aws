@@ -958,12 +958,12 @@ func TestHandleChoiceResult_ConfirmAdvancesToFetching(t *testing.T) {
 
 	cfg := newTestConfig(nil)
 	m := tuiModel{
-		appCfg:  cfg,
-		steps:   allStepMeta(),
-		current: stepConfirm,
-		values:  make(map[stepID]string),
+		appCfg:     cfg,
+		steps:      allStepMeta(),
+		current:    stepConfirm,
+		values:     make(map[stepID]string),
+		choiceComp: newChoiceModel("Confirm", []string{"Confirm", "Restart"}),
 	}
-	m.choiceComp = newChoiceModel("Confirm", []string{"Confirm", "Restart"})
 	m.choiceComp.chosen = confirmChoiceConfirm
 
 	result, _ := m.handleChoiceResult()
@@ -982,12 +982,12 @@ func TestHandleChoiceResult_ConfirmRestart(t *testing.T) {
 
 	cfg := newTestConfig(testAccounts())
 	m := tuiModel{
-		appCfg:  cfg,
-		steps:   allStepMeta(),
-		current: stepConfirm,
-		values:  map[stepID]string{stepEmail: "old@example.com"},
+		appCfg:     cfg,
+		steps:      allStepMeta(),
+		current:    stepConfirm,
+		values:     map[stepID]string{stepEmail: "old@example.com"},
+		choiceComp: newChoiceModel("Confirm", []string{"Confirm", "Restart"}),
 	}
-	m.choiceComp = newChoiceModel("Confirm", []string{"Confirm", "Restart"})
 	m.choiceComp.chosen = confirmChoiceRestart
 
 	result, _ := m.handleChoiceResult()
@@ -1006,12 +1006,12 @@ func TestHandleChoiceResult_DoneRunAgain(t *testing.T) {
 
 	cfg := newTestConfig(testAccounts())
 	m := tuiModel{
-		appCfg:  cfg,
-		steps:   allStepMeta(),
-		current: stepDone,
-		values:  map[stepID]string{stepRegion: "us-east-1"},
+		appCfg:     cfg,
+		steps:      allStepMeta(),
+		current:    stepDone,
+		values:     map[stepID]string{stepRegion: "us-east-1"},
+		choiceComp: newChoiceModel("What next?", []string{"Run again", "Quit"}),
 	}
-	m.choiceComp = newChoiceModel("What next?", []string{"Run again", "Quit"})
 	m.choiceComp.chosen = doneChoiceRunAgain
 
 	result, _ := m.handleChoiceResult()
@@ -1027,12 +1027,12 @@ func TestHandleChoiceResult_DoneQuit(t *testing.T) {
 
 	cfg := newTestConfig(nil)
 	m := tuiModel{
-		appCfg:  cfg,
-		steps:   allStepMeta(),
-		current: stepDone,
-		values:  make(map[stepID]string),
+		appCfg:     cfg,
+		steps:      allStepMeta(),
+		current:    stepDone,
+		values:     make(map[stepID]string),
+		choiceComp: newChoiceModel("What next?", []string{"Run again", "Quit"}),
 	}
-	m.choiceComp = newChoiceModel("What next?", []string{"Run again", "Quit"})
 	m.choiceComp.chosen = doneChoiceQuit
 
 	result, cmd := m.handleChoiceResult()

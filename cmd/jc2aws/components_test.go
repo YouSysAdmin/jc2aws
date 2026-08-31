@@ -4,6 +4,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 )
 
@@ -190,8 +191,8 @@ func TestNewInputModel(t *testing.T) {
 	if m.label != "Email" {
 		t.Errorf("expected label 'Email', got %q", m.label)
 	}
-	if m.isMasked {
-		t.Error("expected isMasked=false")
+	if m.input.EchoMode == textinput.EchoPassword {
+		t.Error("expected unmasked input")
 	}
 	if m.submitted {
 		t.Error("expected submitted=false initially")
@@ -201,8 +202,8 @@ func TestNewInputModel(t *testing.T) {
 func TestNewInputModelMasked(t *testing.T) {
 	m := newInputModel("Password", true, nil)
 
-	if !m.isMasked {
-		t.Error("expected isMasked=true for password input")
+	if m.input.EchoMode != textinput.EchoPassword {
+		t.Error("expected masked input for password")
 	}
 }
 
