@@ -6,6 +6,54 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [4.3.0] 2026-08-31
+
+#### Features:
+- Migrate to Go 1.27.0
+
+#### Fixed:
+- aws: nil-pointer panics on empty profile name and nil Expiration,
+  expiration now written as RFC3339 (botocore-compatible).
+
+- cli: env vars no longer override explicit flags (J2A_SHELL*),
+  SilenceUsage stops help dumps into eval'd stdout, cli-stdout no
+  longer swallows errors, duration validated (900-43200) and output
+  format/region validated before authentication.
+
+- tui: unknown --account/--role-name now shows a warning instead of
+  silently falling through; layout math guarded with min/max.
+
+- jumpcloud: HTTP status checked on every step (xsrf/auth/IDP),
+  MFA-required responses detected (ErrMFARequired), auth cookies
+  propagated to the IDP request, step context in wrapped errors.
+
+- totp: lenient secret parsing (padding/whitespace/dashes), empty
+  secret is an error instead of a bogus code.
+
+- mfa heuristic: exactly-6-digits = OTP code, everything else is a
+  secret, inputs trimmed.
+
+- update: zip directory entry can no longer produce a 0-byte binary,
+  version-tag parse errors surfaced, checksum parser accepts */path
+  formats, User-Agent on GitHub API, separate API/download timeouts,
+  contexts on all requests, decompression-bomb caps, chmod after
+  umask-affected writes.
+
+- credentials/config files written atomically (temp+rename, 0600).
+
+- config: ~ expansion, permissive-mode warning, sentinel errors
+  (ErrAccountNotFound/ErrRoleNotFound), FindAccountByName no longer
+  indexes a different slice than it searched.
+
+- validators: https required for IdP URL, Get returns a safe no-op
+  for unknown keys, underlying parse errors preserved.
+
+#### Chore:
+- Unused promptui/urfave deps
+- Dead getters
+- cyanStyle, isMasked
+- unreachable code
+
 ## [4.2.0] 2026-05-26
 
 #### Added
