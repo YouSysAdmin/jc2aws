@@ -10,6 +10,8 @@ import (
 	"strings"
 
 	"go.yaml.in/yaml/v3"
+
+	"github.com/yousysadmin/jc2aws/internal/cloud"
 )
 
 const DefaultConfigFileName = ".jc2aws.yaml"
@@ -63,11 +65,16 @@ func NewConfig(path string) (conf *Config, err error) {
 		return conf, fmt.Errorf("failed to parse config file %s: %w", path, err)
 	}
 
-	// Backward compatibility: migrate deprecated session_timeout to Duration
-	// if session_duration is not set. session_timeout will be removed in a future release.
-	for i := range conf.Accounts {
-		if conf.Accounts[i].Duration == 0 && conf.Accounts[i].SessionTimeout != 0 {
-			conf.Accounts[i].Duration = conf.Accounts[i].SessionTimeout
+	// Reject an unknown provider outright. Silently defaulting to AWS would
+	// hand the user AWS credentials when they asked for another vendor, which
+	// is far worse than refusing to start.
+	for _, a := range conf.Accounts {
+		if !cloud.IsKnown(a.Provider) {
+			return conf, fmt.Errorf("account %q: unknown provider %q (supported: %s)",
+				a.Name, a.Provider, strings.Join(cloud.Names(), ", "))
+		}
+		for _, w := range a.Warnings() {
+			fmt.Fprintf(os.Stderr, "Warning: %s\n", w)
 		}
 	}
 
@@ -76,6 +83,9 @@ func NewConfig(path string) (conf *Config, err error) {
 
 // applyDefaults fills account-level blanks from the config-wide defaults.
 func (c *Config) applyDefaults(a Account) Account {
+	// Normalize here too: an Account built as a struct literal, as the TUI and
+	// the tests do, never passed through UnmarshalYAML.
+	a.Provider = cloud.Normalize(a.Provider)
 	a.Email = cmp.Or(a.Email, c.DefaultEmail)
 	a.Password = cmp.Or(a.Password, c.DefaultPassword)
 	a.MFASecret = cmp.Or(a.MFASecret, c.DefaultMFATokenSecret)

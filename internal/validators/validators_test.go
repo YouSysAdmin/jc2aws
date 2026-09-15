@@ -1,19 +1,28 @@
 package validators
 
 import (
+	"errors"
 	"slices"
 	"testing"
+
+	"github.com/yousysadmin/jc2aws/internal/cloud"
 )
 
 func TestNamesContainsAllKeys(t *testing.T) {
 	expectedKeys := []string{
-		"skip", "email", "password", "idp-url",
-		"role-arn", "principal-arn", "region", "mfa", "output-format",
+		"skip", "email", "password", "idp-url", "mfa", "output-format",
 	}
 	names := Names()
 	for _, key := range expectedKeys {
 		if !slices.Contains(names, key) {
 			t.Errorf("Names() missing expected key %q", key)
+		}
+	}
+
+	// Provider-dependent keys are served by ProviderAware, not by the registry.
+	for _, key := range ProviderKeys() {
+		if slices.Contains(names, key) {
+			t.Errorf("Names() should not list provider-dependent key %q", key)
 		}
 	}
 }
@@ -118,49 +127,6 @@ func TestIdpURLValidator(t *testing.T) {
 	}
 }
 
-func TestRoleArnValidator(t *testing.T) {
-	fn := Get("role-arn")
-
-	if err := fn("arn:aws:iam::123456789012:role/admin"); err != nil {
-		t.Errorf("role-arn validator rejected valid ARN: %v", err)
-	}
-	if err := fn("not-an-arn"); err == nil {
-		t.Error("role-arn validator accepted invalid ARN")
-	}
-	if err := fn(""); err == nil {
-		t.Error("role-arn validator accepted empty string")
-	}
-}
-
-func TestPrincipalArnValidator(t *testing.T) {
-	fn := Get("principal-arn")
-
-	if err := fn("arn:aws:iam::123456789012:saml-provider/jumpcloud"); err != nil {
-		t.Errorf("principal-arn validator rejected valid ARN: %v", err)
-	}
-	if err := fn("garbage"); err == nil {
-		t.Error("principal-arn validator accepted invalid ARN")
-	}
-}
-
-func TestRegionValidator(t *testing.T) {
-	fn := Get("region")
-
-	validRegions := []string{"us-east-1", "eu-west-1", "ap-northeast-1"}
-	for _, r := range validRegions {
-		if err := fn(r); err != nil {
-			t.Errorf("region validator rejected valid region %q: %v", r, err)
-		}
-	}
-
-	invalidRegions := []string{"", "us-east-99", "invalid-region", "US-EAST-1"}
-	for _, r := range invalidRegions {
-		if err := fn(r); err == nil {
-			t.Errorf("region validator accepted invalid region %q", r)
-		}
-	}
-}
-
 func TestMFAValidator(t *testing.T) {
 	fn := Get("mfa")
 
@@ -192,6 +158,94 @@ func TestOutputFormatValidator(t *testing.T) {
 	for _, v := range invalid {
 		if err := fn(v); err == nil {
 			t.Errorf("output-format validator accepted invalid format %q", v)
+		}
+	}
+}
+
+// fakeProvider records which validator was asked for and always fails, so a
+// test can prove ProviderAware routed to the provider rather than the registry.
+type fakeProvider struct {
+	cloud.Provider // embedded: only the validators below are exercised
+	called         string
+}
+
+func (f *fakeProvider) ValidateRoleARN(string) error {
+	f.called = KeyRoleARN
+	return errors.New("role arn rejected by provider")
+}
+
+func (f *fakeProvider) ValidateProviderARN(string) error {
+	f.called = KeyProviderARN
+	return errors.New("provider arn rejected by provider")
+}
+
+func (f *fakeProvider) ValidateRegion(string) error {
+	f.called = KeyRegion
+	return errors.New("region rejected by provider")
+}
+
+func TestProviderAwareRoutesProviderKeysToProvider(t *testing.T) {
+	for _, key := range ProviderKeys() {
+		t.Run(key, func(t *testing.T) {
+			p := &fakeProvider{}
+
+			err := ProviderAware(key, p)("anything")
+			if err == nil {
+				t.Fatalf("ProviderAware(%q) did not reach the provider", key)
+			}
+			if p.called != key {
+				t.Errorf("ProviderAware(%q) called the provider's %q validator", key, p.called)
+			}
+		})
+	}
+}
+
+func TestProviderAwareFallsThroughToRegistry(t *testing.T) {
+	p := &fakeProvider{}
+
+	// A provider-independent key must behave exactly like Get, and must not
+	// touch the provider.
+	if err := ProviderAware(KeyEmail, p)("not-an-email"); err == nil {
+		t.Error("ProviderAware(email) accepted an invalid address")
+	}
+	if err := ProviderAware(KeyEmail, p)("user@example.com"); err != nil {
+		t.Errorf("ProviderAware(email) rejected a valid address: %v", err)
+	}
+	if p.called != "" {
+		t.Errorf("ProviderAware(email) unexpectedly called the provider's %q validator", p.called)
+	}
+}
+
+func TestProviderAwareNilProviderSkipsProviderKeys(t *testing.T) {
+	// Before an account is chosen the TUI has no provider; input must still be
+	// accepted rather than rejected outright.
+	for _, key := range ProviderKeys() {
+		t.Run(key, func(t *testing.T) {
+			if err := ProviderAware(key, nil)("whatever"); err != nil {
+				t.Errorf("ProviderAware(%q, nil) = %v, want nil", key, err)
+			}
+		})
+	}
+}
+
+func TestProviderAwareNilProviderStillValidatesOtherKeys(t *testing.T) {
+	if err := ProviderAware(KeyEmail, nil)("not-an-email"); err == nil {
+		t.Error("ProviderAware(email, nil) accepted an invalid address")
+	}
+}
+
+func TestProviderAwareUnknownKeyIsPermissive(t *testing.T) {
+	if err := ProviderAware("no-such-key", &fakeProvider{})("anything"); err != nil {
+		t.Errorf("ProviderAware(unknown) = %v, want nil", err)
+	}
+}
+
+func TestGetIsPermissiveForProviderKeys(t *testing.T) {
+	// Get must stay total: provider-dependent keys are no longer registered,
+	// so they fall back to skip rather than panicking.
+	for _, key := range ProviderKeys() {
+		if err := Get(key)("anything at all"); err != nil {
+			t.Errorf("Get(%q) = %v, want nil (skip)", key, err)
 		}
 	}
 }

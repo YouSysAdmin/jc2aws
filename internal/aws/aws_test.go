@@ -12,9 +12,11 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/sts/types"
 
 	"gopkg.in/ini.v1"
+
+	"github.com/yousysadmin/jc2aws/internal/cloud"
 )
 
-func TestAwsSamlInput_ToAwsInput(t *testing.T) {
+func TestToSTSInput(t *testing.T) {
 	type fields struct {
 		PrincipalArn    string
 		RoleArn         string
@@ -45,14 +47,13 @@ func TestAwsSamlInput_ToAwsInput(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			i := &AwsSamlInput{
-				PrincipalArn:    tt.fields.PrincipalArn,
-				RoleArn:         tt.fields.RoleArn,
+			gotS, gotR := toSTSInput(cloud.SAMLInput{
+				ProviderARN:     tt.fields.PrincipalArn,
+				RoleARN:         tt.fields.RoleArn,
 				Region:          tt.fields.Region,
 				SAMLAssertion:   tt.fields.SAMLAssertion,
 				DurationSeconds: tt.fields.DurationSeconds,
-			}
-			gotS, gotR := i.ToAwsInput()
+			})
 			if !reflect.DeepEqual(gotS, tt.wantS) {
 				t.Errorf("ToAwsInput() gotS = %v, want %v", gotS, tt.wantS)
 			}
@@ -63,7 +64,7 @@ func TestAwsSamlInput_ToAwsInput(t *testing.T) {
 	}
 }
 
-func TestAwsSamlOutput_ToEnv(t *testing.T) {
+func TestProviderEnvTable(t *testing.T) {
 
 	type fields struct {
 		AccessKeyID     string
@@ -93,14 +94,13 @@ func TestAwsSamlOutput_ToEnv(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			o := &AwsSamlOutput{
+			got := New().Env(cloud.Credentials{
 				AccessKeyID:     tt.fields.AccessKeyID,
 				SecretAccessKey: tt.fields.SecretAccessKey,
 				SessionToken:    tt.fields.SessionToken,
 				Region:          tt.fields.Region,
 				Expiration:      tt.fields.Expiration,
-			}
-			got := o.ToEnv()
+			})
 			if !reflect.DeepEqual(got, tt.want) {
 				t.Errorf("ToEnv() got = %v, want %v", got, tt.want)
 			}
@@ -108,7 +108,7 @@ func TestAwsSamlOutput_ToEnv(t *testing.T) {
 	}
 }
 
-func TestAwsSamlOutput_PrintEnv(t *testing.T) {
+func TestEnvStringForAWS(t *testing.T) {
 
 	type fields struct {
 		AccessKeyID     string
@@ -141,14 +141,13 @@ func TestAwsSamlOutput_PrintEnv(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			o := &AwsSamlOutput{
+			got := cloud.EnvString(New(), cloud.Credentials{
 				AccessKeyID:     tt.fields.AccessKeyID,
 				SecretAccessKey: tt.fields.SecretAccessKey,
 				SessionToken:    tt.fields.SessionToken,
 				Region:          tt.fields.Region,
 				Expiration:      tt.fields.Expiration,
-			}
-			got := o.PrintEnv()
+			})
 			if !reflect.DeepEqual(got, tt.want) {
 				t.Errorf("ToEnv() got = %v, want %v", got, tt.want)
 			}
@@ -156,7 +155,7 @@ func TestAwsSamlOutput_PrintEnv(t *testing.T) {
 	}
 }
 
-func TestAwsSamlOutput_ToProfile(t *testing.T) {
+func TestRenderCredentialsINI(t *testing.T) {
 
 	timeNow := time.Now()
 
@@ -219,13 +218,12 @@ aws_session_token     = TEST_SESSION_TOKEN
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			o := &AwsSamlOutput{
+			got, err := renderCredentialsINI(tt.args.profileName, tt.args.inputIniFile, cloud.Credentials{
 				AccessKeyID:     tt.fields.AccessKeyID,
 				SecretAccessKey: tt.fields.SecretAccessKey,
 				SessionToken:    tt.fields.SessionToken,
 				Expiration:      tt.fields.Expiration,
-			}
-			got, err := o.ToAwsCredentials(tt.args.profileName, tt.args.inputIniFile)
+			})
 			if (err != nil) != tt.wantErr {
 				t.Errorf("ToProfile() error = %v, wantErr %v", err, tt.wantErr)
 				return
@@ -237,7 +235,7 @@ aws_session_token     = TEST_SESSION_TOKEN
 	}
 }
 
-func TestToAwsSamlOutput(t *testing.T) {
+func TestToCredentials(t *testing.T) {
 
 	timeNow := time.Now()
 
@@ -248,14 +246,15 @@ func TestToAwsSamlOutput(t *testing.T) {
 	tests := []struct {
 		name string
 		args args
-		want AwsSamlOutput
+		want cloud.Credentials
 	}{
 		{name: "default", args: args{credentials: &types.Credentials{
 			AccessKeyId:     aws.String("TEST_ACCESS_KEY"),
 			Expiration:      aws.Time(timeNow),
 			SecretAccessKey: aws.String("TEST_SECRET_ACCESS_KEY"),
 			SessionToken:    aws.String("TEST_SESSION_TOKEN"),
-		}}, want: AwsSamlOutput{
+		}}, want: cloud.Credentials{
+			Provider:        cloud.NameAWS,
 			AccessKeyID:     "TEST_ACCESS_KEY",
 			Expiration:      aws.Time(timeNow),
 			SecretAccessKey: "TEST_SECRET_ACCESS_KEY",
@@ -264,15 +263,15 @@ func TestToAwsSamlOutput(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := ToAwsSamlOutput(tt.args.credentials, tt.args.region); !reflect.DeepEqual(got, tt.want) {
-				t.Errorf("ToAwsSamlOutput() = %v, want %v", got, tt.want)
+			if got := toCredentials(tt.args.credentials, tt.args.region); !reflect.DeepEqual(got, tt.want) {
+				t.Errorf("toCredentials() = %v, want %v", got, tt.want)
 			}
 		})
 	}
 }
 
-func TestAwsSamlOutputToAwsConfig(t *testing.T) {
-	output := AwsSamlOutput{
+func TestRenderConfigINI(t *testing.T) {
+	output := cloud.Credentials{
 		Region: "us-west-2",
 	}
 
@@ -296,9 +295,9 @@ func TestAwsSamlOutputToAwsConfig(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			inputIniFile := ""
-			result, err := output.ToAwsConfig(tt.profileName, inputIniFile)
+			result, err := renderConfigINI(tt.profileName, inputIniFile, output)
 			if err != nil {
-				t.Fatalf("ToAwsConfig() error = %v", err)
+				t.Fatalf("renderConfigINI() error = %v", err)
 			}
 
 			cfg, err := ini.Load(result)
@@ -318,9 +317,9 @@ func TestAwsSamlOutputToAwsConfig(t *testing.T) {
 	}
 }
 
-func TestAwsSamlOutputToAwsCredentialsWithExistingFile(t *testing.T) {
+func TestRenderCredentialsINIWithExistingFile(t *testing.T) {
 	// Create existing INI content as a temporary file path
-	output := AwsSamlOutput{
+	output := cloud.Credentials{
 		AccessKeyID:     "new-key",
 		SecretAccessKey: "new-secret",
 		SessionToken:    "new-token",
@@ -330,9 +329,9 @@ func TestAwsSamlOutputToAwsCredentialsWithExistingFile(t *testing.T) {
 	profileName := "default"
 	inputIniFile := "" // Empty string for testing without existing file
 
-	result, err := output.ToAwsCredentials(profileName, inputIniFile)
+	result, err := renderCredentialsINI(profileName, inputIniFile, output)
 	if err != nil {
-		t.Fatalf("ToAwsCredentials() error = %v", err)
+		t.Fatalf("renderCredentialsINI() error = %v", err)
 	}
 
 	cfg, err := ini.Load(result)
@@ -376,17 +375,17 @@ func TestDefaultAwsProfileName(t *testing.T) {
 	}
 }
 
-func TestGetCredentialsErrorHandling(t *testing.T) {
-	// Test that GetCredentials returns error instead of calling log.Fatal
-	input := AwsSamlInput{
-		PrincipalArn:    "invalid-arn",
-		RoleArn:         "invalid-arn",
+func TestAssumeRoleWithSAMLErrorHandling(t *testing.T) {
+	// AssumeRoleWithSAML must return an error rather than calling log.Fatal.
+	input := cloud.SAMLInput{
+		ProviderARN:     "invalid-arn",
+		RoleARN:         "invalid-arn",
 		SAMLAssertion:   "invalid-saml",
 		Region:          "invalid-region",
 		DurationSeconds: 3600,
 	}
 
-	_, err := GetCredentials(t.Context(), input)
+	_, err := New().AssumeRoleWithSAML(t.Context(), input)
 	if err == nil {
 		t.Error("Expected error for invalid input, got nil")
 	}

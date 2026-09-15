@@ -10,11 +10,16 @@ import (
 	"time"
 
 	"github.com/yousysadmin/jc2aws/internal/aws"
+	"github.com/yousysadmin/jc2aws/internal/cloud"
 )
 
-func testCred() aws.AwsSamlOutput {
+// testProvider returns the AWS provider, which every output-format test uses.
+func testProvider() cloud.Provider { return aws.New() }
+
+func testCred() cloud.Credentials {
 	exp := time.Now().Add(time.Hour).UTC()
-	return aws.AwsSamlOutput{
+	return cloud.Credentials{
+		Provider:        cloud.NameAWS,
 		AccessKeyID:     "TEST_ACCESS_KEY_ID",
 		SecretAccessKey: "TEST_SECRET_ACCESS_KEY",
 		SessionToken:    "TEST_SESSION_TOKEN",
@@ -77,9 +82,16 @@ func TestIsOTPCode(t *testing.T) {
 
 func TestGetCredentialsDurationOutOfRange(t *testing.T) {
 	for _, duration := range []int{0, 899, 43201, -1} {
-		_, err := getCredentials(context.Background(),
-			"user@example.com", "password", "https://sso.example.com", "",
-			"arn:aws:iam::1:saml-provider/x", "arn:aws:iam::1:role/x", "us-east-1", duration)
+		_, err := getCredentials(context.Background(), credentialRequest{
+			Provider:     testProvider(),
+			Email:        "user@example.com",
+			Password:     "password",
+			IdpURL:       "https://sso.example.com",
+			PrincipalARN: "arn:aws:iam::1:saml-provider/x",
+			RoleARN:      "arn:aws:iam::1:role/x",
+			Region:       "us-east-1",
+			Duration:     duration,
+		})
 		if err == nil || !strings.Contains(err.Error(), "out of the allowed range") {
 			t.Errorf("duration %d: expected out-of-range error, got %v", duration, err)
 		}
@@ -88,9 +100,17 @@ func TestGetCredentialsDurationOutOfRange(t *testing.T) {
 
 func TestGetCredentialsInvalidMFASecret(t *testing.T) {
 	// 7+ chars that are not a valid base32 secret must fail fast.
-	_, err := getCredentials(context.Background(),
-		"user@example.com", "password", "https://sso.example.com", "not!a@secret",
-		"arn:aws:iam::1:saml-provider/x", "arn:aws:iam::1:role/x", "us-east-1", 3600)
+	_, err := getCredentials(context.Background(), credentialRequest{
+		Provider:     testProvider(),
+		Email:        "user@example.com",
+		Password:     "password",
+		IdpURL:       "https://sso.example.com",
+		MFA:          "not!a@secret",
+		PrincipalARN: "arn:aws:iam::1:saml-provider/x",
+		RoleARN:      "arn:aws:iam::1:role/x",
+		Region:       "us-east-1",
+		Duration:     3600,
+	})
 	if err == nil || !strings.Contains(err.Error(), "MFA secret") {
 		t.Errorf("expected MFA secret error, got %v", err)
 	}
@@ -100,9 +120,17 @@ func TestGetCredentialsTrimsPastedOTP(t *testing.T) {
 	// A pasted 6-digit code with a trailing newline must be treated as a code
 	// (not as a base32 secret). The call then proceeds to JumpCloud and fails
 	// on the network layer — but NOT with a base32 error.
-	_, err := getCredentials(context.Background(),
-		"user@example.com", "password", "https://127.0.0.1:1/idp", "123456\n",
-		"arn:aws:iam::1:saml-provider/x", "arn:aws:iam::1:role/x", "us-east-1", 3600)
+	_, err := getCredentials(context.Background(), credentialRequest{
+		Provider:     testProvider(),
+		Email:        "user@example.com",
+		Password:     "password",
+		IdpURL:       "https://127.0.0.1:1/idp",
+		MFA:          "123456\n",
+		PrincipalARN: "arn:aws:iam::1:saml-provider/x",
+		RoleARN:      "arn:aws:iam::1:role/x",
+		Region:       "us-east-1",
+		Duration:     3600,
+	})
 	if err != nil && strings.Contains(err.Error(), "base32") {
 		t.Errorf("pasted OTP was misinterpreted as a secret: %v", err)
 	}
@@ -116,7 +144,7 @@ func TestOutputCredentialsCli(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 
-	if err := outputCredentials(testCred(), "cli", "myprofile"); err != nil {
+	if err := outputCredentials(testProvider(), testCred(), "cli", "myprofile"); err != nil {
 		t.Fatalf("outputCredentials(cli) failed: %v", err)
 	}
 
@@ -161,7 +189,7 @@ func TestOutputCredentialsCliPreservesOtherProfiles(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if err := outputCredentials(testCred(), "cli", "myprofile"); err != nil {
+	if err := outputCredentials(testProvider(), testCred(), "cli", "myprofile"); err != nil {
 		t.Fatalf("outputCredentials(cli) failed: %v", err)
 	}
 
@@ -187,7 +215,7 @@ func TestOutputCredentialsEnv(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 
-	if err := outputCredentials(testCred(), "env", ""); err != nil {
+	if err := outputCredentials(testProvider(), testCred(), "env", ""); err != nil {
 		t.Fatalf("outputCredentials(env) failed: %v", err)
 	}
 
@@ -202,7 +230,7 @@ func TestOutputCredentialsEnv(t *testing.T) {
 
 func TestOutputCredentialsCliStdout(t *testing.T) {
 	out, err := captureStdout(t, func() error {
-		return outputCredentials(testCred(), "cli-stdout", "myprofile")
+		return outputCredentials(testProvider(), testCred(), "cli-stdout", "myprofile")
 	})
 	if err != nil {
 		t.Fatalf("outputCredentials(cli-stdout) failed: %v", err)
@@ -214,7 +242,7 @@ func TestOutputCredentialsCliStdout(t *testing.T) {
 
 func TestOutputCredentialsEnvStdout(t *testing.T) {
 	out, err := captureStdout(t, func() error {
-		return outputCredentials(testCred(), "env-stdout", "")
+		return outputCredentials(testProvider(), testCred(), "env-stdout", "")
 	})
 	if err != nil {
 		t.Fatalf("outputCredentials(env-stdout) failed: %v", err)
@@ -225,7 +253,7 @@ func TestOutputCredentialsEnvStdout(t *testing.T) {
 }
 
 func TestOutputCredentialsUnsupportedFormat(t *testing.T) {
-	err := outputCredentials(testCred(), "bogus", "")
+	err := outputCredentials(testProvider(), testCred(), "bogus", "")
 	if err == nil || !strings.Contains(err.Error(), "unsupported output format") {
 		t.Errorf("expected unsupported-format error, got %v", err)
 	}

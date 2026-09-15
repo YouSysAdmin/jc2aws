@@ -6,6 +6,33 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### [5.0.0] 2026-09-15
+
+#### Features:
+- Alibaba Cloud support. An account selects its vendor with `provider: aws|alibaba`
+  (or `--provider`); AWS remains the default when the key is absent.
+  - `-f cli` writes `~/.aliyun/config.json` (a profile in mode `StsToken`) and
+    `~/.alibabacloud/credentials` (a `type = sts` section), preserving all other
+    profiles in both files.
+  - `-f env`/`-f env-stdout`/`-s` export `ALIBABA_CLOUD_ACCESS_KEY_ID`,
+    `ALIBABA_CLOUD_ACCESS_KEY_SECRET`, `ALIBABA_CLOUD_SECURITY_TOKEN`, and both
+    `ALIBABA_CLOUD_REGION_ID` and `ALIBABA_CLOUD_REGION`.
+- Provider-neutral account keys: `principal_arn`, `role_arns`, `regions`,
+  `cli_profile`. The `aws_`-prefixed spellings still work, so existing configs
+  need no changes, when both are present the neutral key wins and a warning is printed.
+- New `--provider` flag (`$J2A_PROVIDER`).
+- Role and identity-provider ARNs are now validated before authenticating, so a
+  malformed ARN no longer costs a full JumpCloud round-trip (and a one-time MFA code).
+- An unknown `provider:` in the config file is now a startup error rather than a
+  silent fallback to AWS.
+
+#### Changed:
+- `--aws-cli-profile-name` is deprecated in favour of `--cli-profile-name`. The old
+  flag and the `J2A_AWS_CLI_PROFILE_NAME` environment variable keep working.
+- The TUI now shows the account's provider and labels the identity-provider step in
+  the selected vendor's vocabulary ("Principal ARN" for AWS, "SAML Provider ARN" for
+  Alibaba Cloud). Region lists are per-provider and never mixed.
+
 ## [4.3.0] 2026-08-31
 
 #### Features:
@@ -213,6 +240,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Initial release.
 
 [Unreleased]: https://github.com/YouSysAdmin/jc2aws/compare/v4.3.0...HEAD
+[5.0.0]: https://github.com/YouSysAdmin/jc2aws/compare/v4.3.0...v5.0.0
 [4.3.0]: https://github.com/YouSysAdmin/jc2aws/compare/v4.2.0...v4.3.0
 [4.2.0]: https://github.com/YouSysAdmin/jc2aws/compare/v4.1.0...v4.2.0
 [4.1.0]: https://github.com/YouSysAdmin/jc2aws/compare/v4.0.1...v4.1.0

@@ -7,6 +7,7 @@ import (
 	"github.com/charmbracelet/bubbles/textinput"
 
 	"github.com/yousysadmin/jc2aws/internal/aws"
+	"github.com/yousysadmin/jc2aws/internal/cloud"
 	"github.com/yousysadmin/jc2aws/internal/config"
 )
 
@@ -20,7 +21,7 @@ func TestAllStepMetaOrder(t *testing.T) {
 	expectedIDs := []stepID{
 		stepAccount, stepRole, stepRegion, stepEmail,
 		stepPassword, stepIdpURL, stepPrincipalARN,
-		stepOutputFormat, stepAwsCliProfile, stepMFA, stepConfirm,
+		stepOutputFormat, stepCLIProfile, stepMFA, stepConfirm,
 	}
 
 	if len(steps) != len(expectedIDs) {
@@ -77,11 +78,11 @@ func TestBuildAccountSelect(t *testing.T) {
 			Email:       "user@example.com",
 			Password:    "secret",
 			MFASecret:   "TOTP123",
-			AWSRoleArns: []config.AWSRole{
+			Roles: []config.Role{
 				{Name: "admin", Arn: "arn:aws:iam::111:role/admin"},
 			},
-			AWSRegions: []string{"us-east-1", "eu-west-1"},
-			Duration:   7200,
+			Regions:  []string{"us-east-1", "eu-west-1"},
+			Duration: 7200,
 		},
 		{
 			Name: "staging",
@@ -124,7 +125,7 @@ func TestBuildAccountSelect(t *testing.T) {
 
 func TestBuildRoleSelect(t *testing.T) {
 	account := config.Account{
-		AWSRoleArns: []config.AWSRole{
+		Roles: []config.Role{
 			{Name: "admin", Description: "Admin role", Arn: "arn:aws:iam::111:role/admin"},
 			{Name: "readonly", Arn: "arn:aws:iam::111:role/readonly"},
 		},
@@ -162,7 +163,7 @@ func TestBuildRegionSelect(t *testing.T) {
 }
 
 func TestBuildOutputFormatSelect(t *testing.T) {
-	m := buildOutputFormatSelect()
+	m := buildOutputFormatSelect(aws.New())
 
 	if m.label != "Select output format:" {
 		t.Errorf("expected label 'Select output format:', got %q", m.label)
@@ -192,9 +193,9 @@ func TestBuildInputFactories(t *testing.T) {
 		{"email", buildEmailInput, "Email", false},
 		{"password", buildPasswordInput, "Password", true},
 		{"idp-url", buildIdpURLInput, "IDP URL", false},
-		{"principal-arn", buildPrincipalARNInput, "Principal ARN", false},
-		{"role-arn", buildRoleARNInput, "Role ARN", false},
-		{"aws-cli-profile", buildAwsCliProfileInput, "AWS CLI Profile Name", false},
+		{"principal-arn", func() inputModel { return buildPrincipalARNInput(aws.New()) }, "Principal ARN", false},
+		{"role-arn", func() inputModel { return buildRoleARNInput(aws.New()) }, "Role ARN", false},
+		{"cli-profile", buildCLIProfileInput, "CLI Profile Name", false},
 		{"mfa", buildMFAInput, "MFA Token or MFA Secret", false},
 	}
 
@@ -212,15 +213,39 @@ func TestBuildInputFactories(t *testing.T) {
 	}
 }
 
+func TestBuildARNInputsFallBackWithoutProvider(t *testing.T) {
+	// A nil provider happens before an account is chosen; the inputs must still
+	// render with a neutral label and accept anything.
+	tests := []struct {
+		name    string
+		builder func() inputModel
+		label   string
+	}{
+		{"principal-arn", func() inputModel { return buildPrincipalARNInput(nil) }, "Identity Provider ARN"},
+		{"role-arn", func() inputModel { return buildRoleARNInput(nil) }, "Role ARN"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			m := tt.builder()
+			if m.label != tt.label {
+				t.Errorf("expected label %q, got %q", tt.label, m.label)
+			}
+			if err := m.validator("anything at all"); err != nil {
+				t.Errorf("nil-provider validator rejected input: %v", err)
+			}
+		})
+	}
+}
+
 // ---------------------------------------------------------------------------
 // regionListForAccount tests
 // ---------------------------------------------------------------------------
 
 func TestRegionListForAccountWithRegions(t *testing.T) {
 	acc := &config.Account{
-		AWSRegions: []string{"us-east-1", "eu-west-1"},
+		Regions: []string{"us-east-1", "eu-west-1"},
 	}
-	result := regionListForAccount(acc)
+	result := regionListForAccount(acc, aws.New())
 	if len(result) != 2 {
 		t.Errorf("expected 2 regions, got %d", len(result))
 	}
@@ -228,16 +253,51 @@ func TestRegionListForAccountWithRegions(t *testing.T) {
 
 func TestRegionListForAccountWithoutRegions(t *testing.T) {
 	acc := &config.Account{}
-	result := regionListForAccount(acc)
+	result := regionListForAccount(acc, aws.New())
 	if len(result) != len(aws.RegionsList) {
 		t.Errorf("expected full regions list (%d), got %d", len(aws.RegionsList), len(result))
 	}
 }
 
 func TestRegionListForAccountNilAccount(t *testing.T) {
-	result := regionListForAccount(nil)
+	result := regionListForAccount(nil, aws.New())
 	if len(result) != len(aws.RegionsList) {
 		t.Errorf("expected full regions list (%d), got %d", len(aws.RegionsList), len(result))
+	}
+}
+
+func TestRegionListForAccountNilProvider(t *testing.T) {
+	// Before an account is chosen there is no provider; offering another
+	// vendor's regions would be worse than offering none.
+	if result := regionListForAccount(nil, nil); len(result) != 0 {
+		t.Errorf("expected no regions for a nil provider, got %d", len(result))
+	}
+}
+
+func TestRegionListForAccountPrefersAccountOverProvider(t *testing.T) {
+	acc := &config.Account{Regions: []string{"only-this-one"}}
+	result := regionListForAccount(acc, aws.New())
+	if len(result) != 1 || result[0] != "only-this-one" {
+		t.Errorf("account regions must win over the provider list, got %v", result)
+	}
+}
+
+func TestProviderDisplayName(t *testing.T) {
+	tests := []struct {
+		name  string
+		input string
+		want  string
+	}{
+		{name: "aws", input: cloud.NameAWS, want: "AWS"},
+		{name: "empty defaults to aws", input: "", want: "AWS"},
+		{name: "unknown falls back to the raw name", input: "gcp", want: "gcp"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := providerDisplayName(tt.input); got != tt.want {
+				t.Errorf("providerDisplayName(%q) = %q, want %q", tt.input, got, tt.want)
+			}
+		})
 	}
 }
 
