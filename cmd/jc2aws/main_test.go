@@ -55,13 +55,13 @@ func TestResolveString_AllAccountFields(t *testing.T) {
 	resetViper()
 
 	acc := &config.Account{
-		Email:           "e",
-		Password:        "p",
-		MFASecret:       "m",
-		IdpURL:          "u",
-		AWSPrincipalArn: "a",
-		AwsCliProfile:   "c",
-		Name:            "myacc",
+		Email:        "e",
+		Password:     "p",
+		MFASecret:    "m",
+		IdpURL:       "u",
+		PrincipalARN: "a",
+		CLIProfile:   "c",
+		Name:         "myacc",
 	}
 
 	tests := []struct {
@@ -86,7 +86,7 @@ func TestResolveString_AllAccountFields(t *testing.T) {
 func TestResolveString_AwsCliProfileFallsBackToName(t *testing.T) {
 	resetViper()
 
-	acc := &config.Account{Name: "staging", AwsCliProfile: ""}
+	acc := &config.Account{Name: "staging", CLIProfile: ""}
 	got := resolveString(keyAwsCliProfile, acc)
 	if got != "staging" {
 		t.Errorf("resolveString(%q): want %q (account name), got %q", keyAwsCliProfile, "staging", got)

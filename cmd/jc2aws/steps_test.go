@@ -77,11 +77,11 @@ func TestBuildAccountSelect(t *testing.T) {
 			Email:       "user@example.com",
 			Password:    "secret",
 			MFASecret:   "TOTP123",
-			AWSRoleArns: []config.AWSRole{
+			Roles: []config.Role{
 				{Name: "admin", Arn: "arn:aws:iam::111:role/admin"},
 			},
-			AWSRegions: []string{"us-east-1", "eu-west-1"},
-			Duration:   7200,
+			Regions:  []string{"us-east-1", "eu-west-1"},
+			Duration: 7200,
 		},
 		{
 			Name: "staging",
@@ -124,7 +124,7 @@ func TestBuildAccountSelect(t *testing.T) {
 
 func TestBuildRoleSelect(t *testing.T) {
 	account := config.Account{
-		AWSRoleArns: []config.AWSRole{
+		Roles: []config.Role{
 			{Name: "admin", Description: "Admin role", Arn: "arn:aws:iam::111:role/admin"},
 			{Name: "readonly", Arn: "arn:aws:iam::111:role/readonly"},
 		},
@@ -218,7 +218,7 @@ func TestBuildInputFactories(t *testing.T) {
 
 func TestRegionListForAccountWithRegions(t *testing.T) {
 	acc := &config.Account{
-		AWSRegions: []string{"us-east-1", "eu-west-1"},
+		Regions: []string{"us-east-1", "eu-west-1"},
 	}
 	result := regionListForAccount(acc)
 	if len(result) != 2 {

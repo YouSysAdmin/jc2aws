@@ -187,7 +187,7 @@ func (m *tuiModel) initStep() {
 			return
 		}
 		if roleName := viper.GetString(keyRoleName); roleName != "" && m.account != nil {
-			role, err := m.account.FindAWSRoleArnByName(roleName)
+			role, err := m.account.FindRoleByName(roleName)
 			if err == nil {
 				m.values[stepRole] = role.Arn
 				m.setStepValueWithSource(stepRole, role.Name, sourcePreset)
@@ -196,7 +196,7 @@ func (m *tuiModel) initStep() {
 			}
 			m.notice = fmt.Sprintf("role %q not found in account %q — select one manually", roleName, m.account.Name)
 		}
-		if m.account != nil && len(m.account.AWSRoleArns) > 0 {
+		if m.account != nil && len(m.account.Roles) > 0 {
 			m.selectComp = buildRoleSelect(*m.account)
 			m.compType = compSelect
 		} else {
@@ -354,7 +354,7 @@ func (m *tuiModel) preResolveSteps() {
 	if viper.GetString(keyRoleARN) != "" {
 		m.setStepValueWithSource(stepRole, viper.GetString(keyRoleARN), sourcePreset)
 	} else if roleName := viper.GetString(keyRoleName); roleName != "" && acc != nil {
-		if role, err := acc.FindAWSRoleArnByName(roleName); err == nil {
+		if role, err := acc.FindRoleByName(roleName); err == nil {
 			m.setStepValueWithSource(stepRole, role.Name, sourcePreset)
 		}
 	}
@@ -556,8 +556,8 @@ func (m *tuiModel) handleSelectResult(item selectItem) {
 
 	case stepRole:
 		if m.account != nil {
-			roles := m.account.AWSRoleArns
-			if i := slices.IndexFunc(roles, func(r config.AWSRole) bool { return r.Name == item.name }); i >= 0 {
+			roles := m.account.Roles
+			if i := slices.IndexFunc(roles, func(r config.Role) bool { return r.Name == item.name }); i >= 0 {
 				m.values[stepRole] = roles[i].Arn
 			}
 		}

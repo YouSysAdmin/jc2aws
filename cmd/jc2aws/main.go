@@ -83,10 +83,10 @@ func resolveString(key string, acc *config.Account) string {
 	case keyIdpURL:
 		return acc.IdpURL
 	case keyPrincipalARN:
-		return acc.AWSPrincipalArn
+		return acc.PrincipalARN
 	case keyAwsCliProfile:
-		if acc.AwsCliProfile != "" {
-			return acc.AwsCliProfile
+		if acc.CLIProfile != "" {
+			return acc.CLIProfile
 		}
 		return acc.Name
 	}
@@ -354,7 +354,7 @@ func runHeadless(cfg *appConfig) error {
 			if acc == nil {
 				return fmt.Errorf("--role-name requires --account to look the role up in")
 			}
-			role, err := acc.FindAWSRoleArnByName(roleName)
+			role, err := acc.FindRoleByName(roleName)
 			if err != nil {
 				return fmt.Errorf("failed to resolve --role-name in account %q: %w", accountName, err)
 			}

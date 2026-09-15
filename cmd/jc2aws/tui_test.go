@@ -29,20 +29,20 @@ func newTestConfig(accounts []config.Account) *appConfig {
 func testAccounts() []config.Account {
 	return []config.Account{
 		{
-			Name:            "prod",
-			Description:     "Production account",
-			Email:           "prod@example.com",
-			Password:        "prodpass",
-			MFASecret:       "prodmfa",
-			IdpURL:          "https://sso.jumpcloud.com/saml2/prod",
-			AWSPrincipalArn: "arn:aws:iam::111:saml-provider/prod",
-			AwsCliProfile:   "prod-profile",
-			Duration:        7200,
-			AWSRoleArns: []config.AWSRole{
+			Name:         "prod",
+			Description:  "Production account",
+			Email:        "prod@example.com",
+			Password:     "prodpass",
+			MFASecret:    "prodmfa",
+			IdpURL:       "https://sso.jumpcloud.com/saml2/prod",
+			PrincipalARN: "arn:aws:iam::111:saml-provider/prod",
+			CLIProfile:   "prod-profile",
+			Duration:     7200,
+			Roles: []config.Role{
 				{Name: "admin", Arn: "arn:aws:iam::111:role/admin", Description: "Admin role"},
 				{Name: "readonly", Arn: "arn:aws:iam::111:role/readonly"},
 			},
-			AWSRegions: []string{"us-east-1", "eu-west-1"},
+			Regions: []string{"us-east-1", "eu-west-1"},
 		},
 		{
 			Name:        "staging",
@@ -523,7 +523,7 @@ func TestInitStep_AwsCliProfilePresetValue(t *testing.T) {
 
 func TestInitStep_AwsCliProfileFromAccount(t *testing.T) {
 	resetViper()
-	acc := config.Account{Name: "myacc", AwsCliProfile: "acc-profile"}
+	acc := config.Account{Name: "myacc", CLIProfile: "acc-profile"}
 
 	cfg := newTestConfig(nil)
 	m := tuiModel{
@@ -1510,7 +1510,7 @@ func TestPreResolveSteps_WithFullAccount(t *testing.T) {
 		t.Errorf("awsCliProfile source: want %q, got %q", sourcePreset, stepSrc(m, stepAwsCliProfile))
 	}
 
-	// Region should be pre-resolved from account's AWSRegions
+	// Region should be pre-resolved from account's Regions
 	// (resolveString for keyRegion doesn't fall back to account regions, so no preset unless Viper has it)
 }
 
@@ -1682,7 +1682,7 @@ func TestPreResolveSteps_AwsCliProfileForCliFormat(t *testing.T) {
 	resetViper()
 	viper.Set(keyOutputFormat, "cli")
 
-	acc := config.Account{Name: "test", AwsCliProfile: "my-profile"}
+	acc := config.Account{Name: "test", CLIProfile: "my-profile"}
 	cfg := newTestConfig(nil)
 	m := tuiModel{
 		appCfg:  cfg,

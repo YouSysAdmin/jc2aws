@@ -67,8 +67,8 @@ func allStepMeta() []stepMeta {
 func buildAccountSelect(accounts []config.Account) selectModel {
 	var items []selectItem
 	for _, a := range accounts {
-		roles := make([]string, 0, len(a.AWSRoleArns))
-		for _, r := range a.AWSRoleArns {
+		roles := make([]string, 0, len(a.Roles))
+		for _, r := range a.Roles {
 			roles = append(roles, r.Name)
 		}
 
@@ -76,8 +76,8 @@ func buildAccountSelect(accounts []config.Account) selectModel {
 		if len(roles) > 0 {
 			details = append(details, detailPair{"Roles", strings.Join(roles, ", ")})
 		}
-		if len(a.AWSRegions) > 0 {
-			details = append(details, detailPair{"Regions", strings.Join(a.AWSRegions, ", ")})
+		if len(a.Regions) > 0 {
+			details = append(details, detailPair{"Regions", strings.Join(a.Regions, ", ")})
 		}
 		if a.Email != "" {
 			details = append(details, detailPair{"Email", "Present"})
@@ -110,7 +110,7 @@ func buildAccountSelect(accounts []config.Account) selectModel {
 // buildRoleSelect creates a selectModel for role ARN selection.
 func buildRoleSelect(account config.Account) selectModel {
 	var items []selectItem
-	for _, r := range account.AWSRoleArns {
+	for _, r := range account.Roles {
 		details := []detailPair{
 			{"ARN", r.Arn},
 		}
@@ -176,8 +176,8 @@ func buildMFAInput() inputModel {
 
 // regionListForAccount returns account-specific regions if available, else full list.
 func regionListForAccount(account *config.Account) []string {
-	if account != nil && len(account.AWSRegions) > 0 {
-		return account.AWSRegions
+	if account != nil && len(account.Regions) > 0 {
+		return account.Regions
 	}
 	return aws.RegionsList
 }
