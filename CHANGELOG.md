@@ -6,6 +6,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### [5.1.0] 2026-09-15
+
+#### Refactor:
+- The TUI interface for more convenient handling of various terminal sizes and host counts.
+
+
 ### [5.0.0] 2026-09-15
 
 #### Features:
@@ -239,7 +245,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 Initial release.
 
-[Unreleased]: https://github.com/YouSysAdmin/jc2aws/compare/v4.3.0...HEAD
+[Unreleased]: https://github.com/YouSysAdmin/jc2aws/compare/v5.1.0...HEAD
+[5.1.0]: https://github.com/YouSysAdmin/jc2aws/compare/v5.0.0...v5.1.0
 [5.0.0]: https://github.com/YouSysAdmin/jc2aws/compare/v4.3.0...v5.0.0
 [4.3.0]: https://github.com/YouSysAdmin/jc2aws/compare/v4.2.0...v4.3.0
 [4.2.0]: https://github.com/YouSysAdmin/jc2aws/compare/v4.1.0...v4.2.0

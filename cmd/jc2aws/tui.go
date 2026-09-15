@@ -374,6 +374,10 @@ func (m *tuiModel) initStep() {
 			}
 		}
 	}
+
+	// Every rebuild site above falls through to here, so a future one cannot
+	// forget to size its component.
+	m.resizeComponents()
 }
 
 func (m *tuiModel) setStepValueWithSource(id stepID, display, source string) {

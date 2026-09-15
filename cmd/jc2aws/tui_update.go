@@ -23,11 +23,16 @@ func (m tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
 		m.height = msg.Height
+		// The early return below keeps the message away from the component
+		// delegation block, so the new size has to be pushed explicitly.
+		m.resizeComponents()
 		return m, nil
 
 	case updateCheckMsg:
 		if msg.latestVersion != "" {
 			m.updateVersion = msg.latestVersion
+			// The banner arrives asynchronously and costs the component rows.
+			m.resizeComponents()
 		}
 		return m, nil
 
@@ -205,8 +210,11 @@ func (m *tuiModel) handleInputResult(val string) {
 func (m tuiModel) restart() tuiModel {
 	nm := newTuiModel(m.appCfg)
 	// Preserve terminal dimensions so the layout doesn't shrink to defaults.
+	// newTuiModel already ran initStep at the default size, so the component
+	// has to be resized after the copy.
 	nm.width = m.width
 	nm.height = m.height
+	nm.resizeComponents()
 	// Preserve update check result across restarts.
 	nm.updateVersion = m.updateVersion
 	return nm

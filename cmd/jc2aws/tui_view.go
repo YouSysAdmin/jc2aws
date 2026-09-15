@@ -29,7 +29,7 @@ func (m tuiModel) View() string {
 	return lipgloss.JoinHorizontal(
 		lipgloss.Top,
 		sidebarStyle.Height(panelHeight).Render(sidebar),
-		contentStyle.Width(contentWidth).Height(panelHeight).Render(content),
+		contentStyle.Width(contentWidth).Height(panelHeight).MaxHeight(panelHeight).Render(content),
 	)
 }
 
@@ -83,7 +83,10 @@ func (m tuiModel) viewSidebar() string {
 	return b.String()
 }
 
-func (m tuiModel) viewContent() string {
+// viewBanner renders the update banner and the notice shown above the active
+// component, or "" when there is nothing to show. It is a separate function so
+// that contentBox can measure exactly what viewContent will print.
+func (m tuiModel) viewBanner() string {
 	var banner string
 	if m.updateVersion != "" {
 		banner = updateBannerStyle.Render(
@@ -93,6 +96,37 @@ func (m tuiModel) viewContent() string {
 	if m.notice != "" {
 		banner += warnStyle.Render("\u26a0 "+m.notice) + "\n\n"
 	}
+	return banner
+}
+
+// contentBox returns the text area available to the active component: the
+// content pane less its padding and less whatever the banner occupies.
+func (m tuiModel) contentBox() (width, height int) {
+	width = max(m.width-sidebarWidth-4, 30) - 4 // contentStyle Padding(1, 2)
+	height = max(m.height-2, 0) - 2
+
+	if banner := m.viewBanner(); banner != "" {
+		// The banner ends in a blank line that the component's first row does
+		// not occupy, so discount one from its measured height.
+		height -= lipgloss.Height(banner) - 1
+	}
+
+	return max(width, listMinWidth), max(height, 0)
+}
+
+// resizeComponents pushes the current content box into the active component.
+// Call it after anything that changes the terminal size or the chrome above the
+// component.
+func (m *tuiModel) resizeComponents() {
+	if m.compType != compSelect {
+		return
+	}
+	width, height := m.contentBox()
+	m.selectComp = m.selectComp.WithSize(width, height)
+}
+
+func (m tuiModel) viewContent() string {
+	banner := m.viewBanner()
 
 	switch m.compType {
 	case "select":
@@ -161,14 +195,32 @@ func (m tuiModel) viewSummary() string {
 	return b.String()
 }
 
+// doneErrorMaxRows caps a provider error on the done screen. STS errors are
+// unbounded, and the pane is clipped to the terminal, so an untrimmed one would
+// push the "Run again / Quit" menu off the bottom and look like a hang.
+const doneErrorMaxRows = 6
+
+// trimError wraps err to width and cuts it to at most doneErrorMaxRows rows,
+// marking the cut so the reader knows there is more.
+func (m tuiModel) trimError(err error) string {
+	width, _ := m.contentBox()
+	wrapped := errorStyle.Width(width).Render(err.Error())
+
+	rows := strings.Split(wrapped, "\n")
+	if len(rows) <= doneErrorMaxRows {
+		return wrapped
+	}
+	return strings.Join(rows[:doneErrorMaxRows], "\n") + "\n" + mutedStyle.Render("  \u2026")
+}
+
 func (m tuiModel) viewDoneResult() string {
 	if m.credErr != nil {
 		return errorBannerStyle.Render("\u2717 Failed to obtain credentials") + "\n\n" +
-			errorStyle.Render(m.credErr.Error()) + "\n"
+			m.trimError(m.credErr) + "\n"
 	}
 	if m.outputErr != nil {
 		return successBannerStyle.Render("\u2713 Credentials obtained") + "\n\n" +
-			errorBannerStyle.Render("\u26a0 Output error: "+m.outputErr.Error()) + "\n"
+			errorBannerStyle.Render("\u26a0 Output error: ") + m.trimError(m.outputErr) + "\n"
 	}
 	if m.outputDone {
 		format := m.resolveOutputFormat()
