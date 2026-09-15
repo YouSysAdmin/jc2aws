@@ -287,8 +287,6 @@ accounts:
     session_duration: 43200
 
   # Alibaba Cloud account.
-  # Note that Alibaba region IDs look like AWS ones but name different places:
-  # eu-central-1 is Frankfurt and us-west-1 is Silicon Valley.
   - name: my-ali-prod
     description: "Alibaba Cloud production account"
     provider: alibaba

@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### [5.0.0] 2026-09-15
+
 #### Features:
 - Alibaba Cloud support. An account selects its vendor with `provider: aws|alibaba`
   (or `--provider`); AWS remains the default when the key is absent.
@@ -17,7 +19,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
     `ALIBABA_CLOUD_REGION_ID` and `ALIBABA_CLOUD_REGION`.
 - Provider-neutral account keys: `principal_arn`, `role_arns`, `regions`,
   `cli_profile`. The `aws_`-prefixed spellings still work, so existing configs
-  need no changes; when both are present the neutral key wins and a warning is printed.
+  need no changes, when both are present the neutral key wins and a warning is printed.
 - New `--provider` flag (`$J2A_PROVIDER`).
 - Role and identity-provider ARNs are now validated before authenticating, so a
   malformed ARN no longer costs a full JumpCloud round-trip (and a one-time MFA code).
@@ -238,6 +240,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Initial release.
 
 [Unreleased]: https://github.com/YouSysAdmin/jc2aws/compare/v4.3.0...HEAD
+[5.0.0]: https://github.com/YouSysAdmin/jc2aws/compare/v4.3.0...v5.0.0
 [4.3.0]: https://github.com/YouSysAdmin/jc2aws/compare/v4.2.0...v4.3.0
 [4.2.0]: https://github.com/YouSysAdmin/jc2aws/compare/v4.1.0...v4.2.0
 [4.1.0]: https://github.com/YouSysAdmin/jc2aws/compare/v4.0.1...v4.1.0
