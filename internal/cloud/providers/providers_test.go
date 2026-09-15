@@ -15,6 +15,8 @@ func TestGet(t *testing.T) {
 		wantErr  bool
 	}{
 		{name: "aws", input: "aws", wantName: cloud.NameAWS},
+		{name: "alibaba", input: "alibaba", wantName: cloud.NameAlibaba},
+		{name: "alibaba mixed case", input: " Alibaba ", wantName: cloud.NameAlibaba},
 		{name: "empty falls back to the default", input: "", wantName: cloud.DefaultName},
 		{name: "mixed case is normalized", input: "  AWS ", wantName: cloud.NameAWS},
 		{name: "unknown provider", input: "gcp", wantErr: true},
@@ -47,9 +49,6 @@ func TestGetUnknownWrapsSentinel(t *testing.T) {
 func TestGetCoversEveryKnownName(t *testing.T) {
 	for _, name := range cloud.Names() {
 		t.Run(name, func(t *testing.T) {
-			if name == cloud.NameAlibaba {
-				t.Skip("internal/alibaba not implemented yet")
-			}
 			p, err := Get(name)
 			if err != nil {
 				t.Fatalf("Get(%q) error = %v", name, err)
