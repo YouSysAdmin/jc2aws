@@ -4,7 +4,8 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/yousysadmin/jc2aws/internal/aws"
+	"github.com/yousysadmin/jc2aws/internal/cloud"
+	"github.com/yousysadmin/jc2aws/internal/cloud/providers"
 	"github.com/yousysadmin/jc2aws/internal/config"
 	"github.com/yousysadmin/jc2aws/internal/validators"
 )
@@ -21,7 +22,7 @@ const (
 	stepIdpURL
 	stepPrincipalARN
 	stepOutputFormat
-	stepAwsCliProfile
+	stepCLIProfile
 	stepMFA
 	stepConfirm
 	stepFetching // credential fetching in progress
@@ -51,9 +52,9 @@ func allStepMeta() []stepMeta {
 		{id: stepEmail, title: "Email"},
 		{id: stepPassword, title: "Password"},
 		{id: stepIdpURL, title: "IDP URL"},
-		{id: stepPrincipalARN, title: "Principal ARN"},
+		{id: stepPrincipalARN, title: "Identity Provider ARN"},
 		{id: stepOutputFormat, title: "Output Format"},
-		{id: stepAwsCliProfile, title: "AWS CLI Profile"},
+		{id: stepCLIProfile, title: "CLI Profile"},
 		{id: stepMFA, title: "MFA"},
 		{id: stepConfirm, title: "Confirm"},
 	}
@@ -72,7 +73,7 @@ func buildAccountSelect(accounts []config.Account) selectModel {
 			roles = append(roles, r.Name)
 		}
 
-		var details []detailPair
+		details := []detailPair{{"Provider", providerDisplayName(a.Provider)}}
 		if len(roles) > 0 {
 			details = append(details, detailPair{"Roles", strings.Join(roles, ", ")})
 		}
@@ -123,7 +124,7 @@ func buildRoleSelect(account config.Account) selectModel {
 	return newSelectModel("Select role:", items)
 }
 
-// buildRegionSelect creates a selectModel for AWS region selection.
+// buildRegionSelect creates a selectModel for cloud region selection.
 func buildRegionSelect(regions []string) selectModel {
 	var items []selectItem
 	for _, r := range regions {
@@ -132,14 +133,22 @@ func buildRegionSelect(regions []string) selectModel {
 	return newSelectModel("Select region:", items)
 }
 
-// buildOutputFormatSelect creates a selectModel for output format selection.
-func buildOutputFormatSelect() selectModel {
+// buildOutputFormatSelect creates a selectModel for output format selection,
+// describing the vendor-specific formats in the provider's own terms.
+func buildOutputFormatSelect(p cloud.Provider) selectModel {
+	cliDescription := "Write the vendor CLI credential files"
+	vendor := "cloud"
+	if p != nil {
+		cliDescription = p.Info().CLIDescription
+		vendor = p.Info().DisplayName
+	}
+
 	items := []selectItem{
-		{name: "cli", description: "Write to ~/.aws/credentials and ~/.aws/config"},
+		{name: "cli", description: cliDescription},
 		{name: "env", description: "Write to ~/.jc2aws.env"},
-		{name: "cli-stdout", description: "Print AWS CLI credentials to stdout"},
+		{name: "cli-stdout", description: "Print " + vendor + " CLI credentials to stdout"},
 		{name: "env-stdout", description: "Print environment variables to stdout"},
-		{name: "shell", description: "Launch a shell with AWS credentials as env vars"},
+		{name: "shell", description: "Launch a shell with " + vendor + " credentials as env vars"},
 	}
 	return newSelectModel("Select output format:", items)
 }
@@ -147,37 +156,60 @@ func buildOutputFormatSelect() selectModel {
 // Input builders use shared validators.
 
 func buildEmailInput() inputModel {
-	return newInputModel("Email", false, validators.Get("email"))
+	return newInputModel("Email", false, validators.Get(validators.KeyEmail))
 }
 
 func buildPasswordInput() inputModel {
-	return newInputModel("Password", true, validators.Get("password"))
+	return newInputModel("Password", true, validators.Get(validators.KeyPassword))
 }
 
 func buildIdpURLInput() inputModel {
-	return newInputModel("IDP URL", false, validators.Get("idp-url"))
+	return newInputModel("IDP URL", false, validators.Get(validators.KeyIdpURL))
 }
 
-func buildPrincipalARNInput() inputModel {
-	return newInputModel("Principal ARN", false, validators.Get("principal-arn"))
+func buildPrincipalARNInput(p cloud.Provider) inputModel {
+	label := "Identity Provider ARN"
+	if p != nil {
+		label = p.Info().ProviderARNLabel
+	}
+	return newInputModel(label, false, validators.ProviderAware(validators.KeyProviderARN, p))
 }
 
-func buildRoleARNInput() inputModel {
-	return newInputModel("Role ARN", false, validators.Get("role-arn"))
+func buildRoleARNInput(p cloud.Provider) inputModel {
+	label := "Role ARN"
+	if p != nil {
+		label = p.Info().RoleARNLabel
+	}
+	return newInputModel(label, false, validators.ProviderAware(validators.KeyRoleARN, p))
 }
 
-func buildAwsCliProfileInput() inputModel {
-	return newInputModel("AWS CLI Profile Name", false, validators.Get("skip"))
+func buildCLIProfileInput() inputModel {
+	return newInputModel("CLI Profile Name", false, validators.Get(validators.KeySkip))
 }
 
 func buildMFAInput() inputModel {
-	return newInputModel("MFA Token or MFA Secret", false, validators.Get("skip"))
+	return newInputModel("MFA Token or MFA Secret", false, validators.Get(validators.KeySkip))
 }
 
-// regionListForAccount returns account-specific regions if available, else full list.
-func regionListForAccount(account *config.Account) []string {
+// regionListForAccount returns account-specific regions if configured,
+// otherwise the provider's built-in list. A nil provider yields no regions,
+// which leaves the picker empty rather than offering another vendor's regions.
+func regionListForAccount(account *config.Account, p cloud.Provider) []string {
 	if account != nil && len(account.Regions) > 0 {
 		return account.Regions
 	}
-	return aws.RegionsList
+	if p == nil {
+		return nil
+	}
+	return p.Regions()
+}
+
+// providerDisplayName renders a provider name for the account picker, falling
+// back to the raw value so an unconstructible provider never breaks rendering.
+func providerDisplayName(name string) string {
+	p, err := providers.Get(name)
+	if err != nil {
+		return cloud.Normalize(name)
+	}
+	return p.Info().DisplayName
 }

@@ -8,7 +8,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/spf13/viper"
 
-	"github.com/yousysadmin/jc2aws/internal/aws"
+	"github.com/yousysadmin/jc2aws/internal/cloud"
 	"github.com/yousysadmin/jc2aws/internal/config"
 )
 
@@ -461,10 +461,10 @@ func TestInitStep_MFAPreset(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// initStep — stepAwsCliProfile conditional skip
+// initStep — stepCLIProfile conditional skip
 // ---------------------------------------------------------------------------
 
-func TestInitStep_AwsCliProfileSkippedForNonCliFormat(t *testing.T) {
+func TestInitStep_CLIProfileSkippedForNonCliFormat(t *testing.T) {
 	resetViper()
 	viper.Set(keyOutputFormat, "env")
 
@@ -472,17 +472,17 @@ func TestInitStep_AwsCliProfileSkippedForNonCliFormat(t *testing.T) {
 	m := tuiModel{
 		appCfg:  cfg,
 		steps:   allStepMeta(),
-		current: stepAwsCliProfile,
+		current: stepCLIProfile,
 		values:  make(map[stepID]string),
 	}
 	m.initStep()
 
-	if stepValue(m, stepAwsCliProfile) != "(n/a)" {
-		t.Errorf("profile should be '(n/a)' for non-cli format, got %q", stepValue(m, stepAwsCliProfile))
+	if stepValue(m, stepCLIProfile) != "(n/a)" {
+		t.Errorf("profile should be '(n/a)' for non-cli format, got %q", stepValue(m, stepCLIProfile))
 	}
 }
 
-func TestInitStep_AwsCliProfileShownForCliFormat(t *testing.T) {
+func TestInitStep_CLIProfileShownForCliFormat(t *testing.T) {
 	resetViper()
 	// outputFormat not explicitly set — interactive selected "cli"
 
@@ -490,7 +490,7 @@ func TestInitStep_AwsCliProfileShownForCliFormat(t *testing.T) {
 	m := tuiModel{
 		appCfg:  cfg,
 		steps:   allStepMeta(),
-		current: stepAwsCliProfile,
+		current: stepCLIProfile,
 		values:  map[stepID]string{stepOutputFormat: "cli"},
 	}
 	m.initStep()
@@ -500,28 +500,28 @@ func TestInitStep_AwsCliProfileShownForCliFormat(t *testing.T) {
 	}
 }
 
-func TestInitStep_AwsCliProfilePresetValue(t *testing.T) {
+func TestInitStep_CLIProfilePresetValue(t *testing.T) {
 	resetViper()
-	viper.Set(keyAwsCliProfile, "myprofile")
+	viper.Set(keyCLIProfile, "myprofile")
 
 	cfg := newTestConfig(nil)
 	m := tuiModel{
 		appCfg:  cfg,
 		steps:   allStepMeta(),
-		current: stepAwsCliProfile,
+		current: stepCLIProfile,
 		values:  map[stepID]string{stepOutputFormat: "cli"},
 	}
 	m.initStep()
 
-	if stepValue(m, stepAwsCliProfile) != "myprofile" {
-		t.Errorf("profile should be 'myprofile', got %q", stepValue(m, stepAwsCliProfile))
+	if stepValue(m, stepCLIProfile) != "myprofile" {
+		t.Errorf("profile should be 'myprofile', got %q", stepValue(m, stepCLIProfile))
 	}
-	if m.current == stepAwsCliProfile {
-		t.Error("should advance past stepAwsCliProfile when preset")
+	if m.current == stepCLIProfile {
+		t.Error("should advance past stepCLIProfile when preset")
 	}
 }
 
-func TestInitStep_AwsCliProfileFromAccount(t *testing.T) {
+func TestInitStep_CLIProfileFromAccount(t *testing.T) {
 	resetViper()
 	acc := config.Account{Name: "myacc", CLIProfile: "acc-profile"}
 
@@ -529,14 +529,14 @@ func TestInitStep_AwsCliProfileFromAccount(t *testing.T) {
 	m := tuiModel{
 		appCfg:  cfg,
 		steps:   allStepMeta(),
-		current: stepAwsCliProfile,
+		current: stepCLIProfile,
 		values:  map[stepID]string{stepOutputFormat: "cli"},
 		account: &acc,
 	}
 	m.initStep()
 
-	if stepValue(m, stepAwsCliProfile) != "acc-profile" {
-		t.Errorf("profile should come from account: want %q, got %q", "acc-profile", stepValue(m, stepAwsCliProfile))
+	if stepValue(m, stepCLIProfile) != "acc-profile" {
+		t.Errorf("profile should come from account: want %q, got %q", "acc-profile", stepValue(m, stepCLIProfile))
 	}
 }
 
@@ -920,18 +920,18 @@ func TestHandleInputResult_IdpURL(t *testing.T) {
 	}
 }
 
-func TestHandleInputResult_AwsCliProfile(t *testing.T) {
+func TestHandleInputResult_CLIProfile(t *testing.T) {
 	resetViper()
 
 	cfg := newTestConfig(nil)
-	m := tuiModel{appCfg: cfg, steps: allStepMeta(), current: stepAwsCliProfile, values: make(map[stepID]string)}
+	m := tuiModel{appCfg: cfg, steps: allStepMeta(), current: stepCLIProfile, values: make(map[stepID]string)}
 	m.handleInputResult("my-profile")
 
-	if m.values[stepAwsCliProfile] != "my-profile" {
-		t.Errorf("profile value: want %q, got %q", "my-profile", m.values[stepAwsCliProfile])
+	if m.values[stepCLIProfile] != "my-profile" {
+		t.Errorf("profile value: want %q, got %q", "my-profile", m.values[stepCLIProfile])
 	}
-	if stepValue(m, stepAwsCliProfile) != "my-profile" {
-		t.Errorf("profile display: want %q, got %q", "my-profile", stepValue(m, stepAwsCliProfile))
+	if stepValue(m, stepCLIProfile) != "my-profile" {
+		t.Errorf("profile display: want %q, got %q", "my-profile", stepValue(m, stepCLIProfile))
 	}
 }
 
@@ -1299,7 +1299,7 @@ func TestUpdate_CredentialResultSuccess(t *testing.T) {
 	viper.Set(keyOutputFormat, "cli")
 
 	exp := time.Date(2026, 1, 15, 12, 0, 0, 0, time.UTC)
-	cred := aws.AwsSamlOutput{
+	cred := cloud.Credentials{
 		AccessKeyID:     "AKIA",
 		SecretAccessKey: "SECRET",
 		SessionToken:    "TOKEN",
@@ -1506,8 +1506,8 @@ func TestPreResolveSteps_WithFullAccount(t *testing.T) {
 
 	// AWS CLI Profile — output format not set, so resolveOutputFormat returns ""
 	// which is neither "cli" nor "cli-stdout", so profile should be "(n/a)"
-	if stepSrc(m, stepAwsCliProfile) != sourcePreset {
-		t.Errorf("awsCliProfile source: want %q, got %q", sourcePreset, stepSrc(m, stepAwsCliProfile))
+	if stepSrc(m, stepCLIProfile) != sourcePreset {
+		t.Errorf("cliProfile source: want %q, got %q", sourcePreset, stepSrc(m, stepCLIProfile))
 	}
 
 	// Region should be pre-resolved from account's Regions
@@ -1573,7 +1573,7 @@ func TestPreResolveSteps_NoAccount(t *testing.T) {
 	// Nothing should be pre-resolved (no account, no Viper settings)
 	for _, s := range m.steps {
 		// AWS CLI Profile gets "(n/a)" because format is "" (not cli/cli-stdout)
-		if s.id == stepAwsCliProfile {
+		if s.id == stepCLIProfile {
 			continue
 		}
 		if s.source == sourcePreset {
@@ -1678,7 +1678,7 @@ func TestPreResolveSteps_RoleNameFromViper(t *testing.T) {
 	}
 }
 
-func TestPreResolveSteps_AwsCliProfileForCliFormat(t *testing.T) {
+func TestPreResolveSteps_CLIProfileForCliFormat(t *testing.T) {
 	resetViper()
 	viper.Set(keyOutputFormat, "cli")
 
@@ -1694,15 +1694,15 @@ func TestPreResolveSteps_AwsCliProfileForCliFormat(t *testing.T) {
 
 	m.preResolveSteps()
 
-	if stepSrc(m, stepAwsCliProfile) != sourcePreset {
-		t.Errorf("awsCliProfile source: want %q, got %q", sourcePreset, stepSrc(m, stepAwsCliProfile))
+	if stepSrc(m, stepCLIProfile) != sourcePreset {
+		t.Errorf("cliProfile source: want %q, got %q", sourcePreset, stepSrc(m, stepCLIProfile))
 	}
-	if stepValue(m, stepAwsCliProfile) != "my-profile" {
-		t.Errorf("awsCliProfile value: want %q, got %q", "my-profile", stepValue(m, stepAwsCliProfile))
+	if stepValue(m, stepCLIProfile) != "my-profile" {
+		t.Errorf("cliProfile value: want %q, got %q", "my-profile", stepValue(m, stepCLIProfile))
 	}
 }
 
-func TestPreResolveSteps_AwsCliProfileNAForNonCliFormat(t *testing.T) {
+func TestPreResolveSteps_CLIProfileNAForNonCliFormat(t *testing.T) {
 	resetViper()
 	viper.Set(keyOutputFormat, "env")
 
@@ -1717,11 +1717,11 @@ func TestPreResolveSteps_AwsCliProfileNAForNonCliFormat(t *testing.T) {
 
 	m.preResolveSteps()
 
-	if stepSrc(m, stepAwsCliProfile) != sourcePreset {
-		t.Errorf("awsCliProfile source: want %q, got %q", sourcePreset, stepSrc(m, stepAwsCliProfile))
+	if stepSrc(m, stepCLIProfile) != sourcePreset {
+		t.Errorf("cliProfile source: want %q, got %q", sourcePreset, stepSrc(m, stepCLIProfile))
 	}
-	if stepValue(m, stepAwsCliProfile) != "(n/a)" {
-		t.Errorf("awsCliProfile value: want %q, got %q", "(n/a)", stepValue(m, stepAwsCliProfile))
+	if stepValue(m, stepCLIProfile) != "(n/a)" {
+		t.Errorf("cliProfile value: want %q, got %q", "(n/a)", stepValue(m, stepCLIProfile))
 	}
 }
 
@@ -1777,7 +1777,7 @@ func TestWriteOutput_ShellReturnsEmptyResult(t *testing.T) {
 	viper.Set(keyOutputFormat, "shell")
 
 	exp := time.Date(2026, 1, 15, 12, 0, 0, 0, time.UTC)
-	cred := &aws.AwsSamlOutput{
+	cred := &cloud.Credentials{
 		AccessKeyID: "AKIA", SecretAccessKey: "SECRET",
 		SessionToken: "TOKEN", Region: "us-east-1", Expiration: &exp,
 	}
@@ -1798,7 +1798,7 @@ func TestWriteOutput_ShellReturnsEmptyResult(t *testing.T) {
 
 func TestWriteOutput_PresetStdoutReturnsEmptyResult(t *testing.T) {
 	exp := time.Date(2026, 1, 15, 12, 0, 0, 0, time.UTC)
-	cred := &aws.AwsSamlOutput{
+	cred := &cloud.Credentials{
 		AccessKeyID: "AKIA", SecretAccessKey: "SECRET",
 		SessionToken: "TOKEN", Region: "us-east-1", Expiration: &exp,
 	}
@@ -1828,7 +1828,7 @@ func TestWriteOutput_InteractiveStdoutDefersToPostTUI(t *testing.T) {
 	// After the stdout refactor, interactive stdout is handled the same as
 	// preset stdout: deferred to post-TUI for real stdout printing.
 	exp := time.Date(2026, 1, 15, 12, 0, 0, 0, time.UTC)
-	cred := &aws.AwsSamlOutput{
+	cred := &cloud.Credentials{
 		AccessKeyID: "AKIAEXAMPLE", SecretAccessKey: "SECRET",
 		SessionToken: "TOKEN", Region: "us-east-1", Expiration: &exp,
 	}
@@ -1838,7 +1838,7 @@ func TestWriteOutput_InteractiveStdoutDefersToPostTUI(t *testing.T) {
 			resetViper()
 			// outputFormat not explicitly set — interactive
 			// awsCliProfile set via Viper
-			viper.Set(keyAwsCliProfile, "test-profile")
+			viper.Set(keyCLIProfile, "test-profile")
 
 			cfg := newTestConfig(nil)
 			m := tuiModel{
@@ -2035,7 +2035,7 @@ func TestAccountInfoText_FieldsAndNoSecrets(t *testing.T) {
 	resetViper()
 
 	exp := time.Date(2026, 5, 26, 16, 4, 5, 0, time.UTC)
-	cred := &aws.AwsSamlOutput{
+	cred := &cloud.Credentials{
 		AccessKeyID:     "AKIASECRETKEYID",
 		SecretAccessKey: "SUPERSECRETKEY",
 		SessionToken:    "SESSIONTOKENVALUE",
@@ -2072,7 +2072,7 @@ func TestAccountInfoText_FieldsAndNoSecrets(t *testing.T) {
 func TestAccountInfoText_NilExpirationAndPlaceholders(t *testing.T) {
 	resetViper()
 
-	cred := &aws.AwsSamlOutput{
+	cred := &cloud.Credentials{
 		Region:     "us-east-1",
 		Expiration: nil,
 	}

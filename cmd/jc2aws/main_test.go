@@ -73,7 +73,7 @@ func TestResolveString_AllAccountFields(t *testing.T) {
 		{keyMFA, "m"},
 		{keyIdpURL, "u"},
 		{keyPrincipalARN, "a"},
-		{keyAwsCliProfile, "c"},
+		{keyCLIProfile, "c"},
 	}
 	for _, tt := range tests {
 		got := resolveString(tt.key, acc)
@@ -83,13 +83,13 @@ func TestResolveString_AllAccountFields(t *testing.T) {
 	}
 }
 
-func TestResolveString_AwsCliProfileFallsBackToName(t *testing.T) {
+func TestResolveString_CLIProfileFallsBackToName(t *testing.T) {
 	resetViper()
 
 	acc := &config.Account{Name: "staging", CLIProfile: ""}
-	got := resolveString(keyAwsCliProfile, acc)
+	got := resolveString(keyCLIProfile, acc)
 	if got != "staging" {
-		t.Errorf("resolveString(%q): want %q (account name), got %q", keyAwsCliProfile, "staging", got)
+		t.Errorf("resolveString(%q): want %q (account name), got %q", keyCLIProfile, "staging", got)
 	}
 }
 

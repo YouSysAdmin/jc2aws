@@ -13,6 +13,8 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 
+	"github.com/yousysadmin/jc2aws/internal/cloud"
+	"github.com/yousysadmin/jc2aws/internal/cloud/providers"
 	"github.com/yousysadmin/jc2aws/internal/config"
 	"github.com/yousysadmin/jc2aws/internal/validators"
 	"github.com/yousysadmin/jc2aws/pkg"
@@ -38,17 +40,20 @@ type appConfig struct {
 // ---------------------------------------------------------------------------
 
 const (
-	keyEmail         = "email"
-	keyPassword      = "password"
-	keyMFA           = "mfa"
-	keyIdpURL        = "idp-url"
-	keyRoleName      = "role-name"
-	keyRoleARN       = "role-arn"
-	keyPrincipalARN  = "principal-arn"
-	keyRegion        = "region"
-	keyDuration      = "duration"
-	keyAccount       = "account"
-	keyOutputFormat  = "output-format"
+	keyEmail        = "email"
+	keyPassword     = "password"
+	keyMFA          = "mfa"
+	keyIdpURL       = "idp-url"
+	keyRoleName     = "role-name"
+	keyRoleARN      = "role-arn"
+	keyPrincipalARN = "principal-arn"
+	keyRegion       = "region"
+	keyProvider     = "provider"
+	keyDuration     = "duration"
+	keyAccount      = "account"
+	keyOutputFormat = "output-format"
+	keyCLIProfile   = "cli-profile-name"
+	// keyAwsCliProfile is the deprecated spelling of keyCLIProfile.
 	keyAwsCliProfile = "aws-cli-profile-name"
 	keyNoUpdateCheck = "no-update-check"
 	keyShell         = "shell"
@@ -84,7 +89,9 @@ func resolveString(key string, acc *config.Account) string {
 		return acc.IdpURL
 	case keyPrincipalARN:
 		return acc.PrincipalARN
-	case keyAwsCliProfile:
+	case keyProvider:
+		return acc.Provider
+	case keyCLIProfile:
 		if acc.CLIProfile != "" {
 			return acc.CLIProfile
 		}
@@ -106,6 +113,12 @@ func resolveDuration(acc *config.Account) int {
 		return acc.Duration
 	}
 	return defaultDuration
+}
+
+// resolveProvider returns the cloud provider selected by flag, env var, or the
+// account's `provider:` key, defaulting to AWS.
+func resolveProvider(acc *config.Account) (cloud.Provider, error) {
+	return providers.Get(resolveString(keyProvider, acc))
 }
 
 // ---------------------------------------------------------------------------
@@ -139,11 +152,18 @@ func main() {
 		fmt.Fprintf(os.Stderr, "Error: failed to bind env var for %s: %v\n", keyConfig, err)
 		os.Exit(1)
 	}
+	// The flag was renamed from --aws-cli-profile-name; without this the old
+	// env var would silently stop being honoured, because AutomaticEnv derives
+	// J2A_AWS_CLI_PROFILE_NAME from the deprecated key name alone.
+	if err := viper.BindEnv(keyCLIProfile, "J2A_CLI_PROFILE_NAME", "J2A_AWS_CLI_PROFILE_NAME"); err != nil {
+		fmt.Fprintf(os.Stderr, "Error: failed to bind env var for %s: %v\n", keyCLIProfile, err)
+		os.Exit(1)
+	}
 
 	rootCmd := &cobra.Command{
 		Use:          filepath.Base(os.Args[0]), //"jc2aws-tui",
-		Short:        "Get AWS credentials via JumpCloud SSO",
-		Long:         "Obtaining temporary AWS credentials via JumpCloud SAML authentication.",
+		Short:        "Get cloud credentials via JumpCloud SSO",
+		Long:         "Obtaining temporary AWS or Alibaba Cloud credentials via JumpCloud SAML authentication.",
 		Version:      pkg.Version,
 		Args:         cobra.NoArgs,
 		SilenceUsage: true,
@@ -221,6 +241,11 @@ func main() {
 				viper.Set(keyOutputFormat, "shell")
 			}
 
+			// Forward the deprecated profile flag before either mode reads it.
+			if cmd.Flags().Changed(keyAwsCliProfile) && !cmd.Flags().Changed(keyCLIProfile) {
+				viper.Set(keyCLIProfile, viper.GetString(keyAwsCliProfile))
+			}
+
 			cfg.interactive = viper.GetBool(keyInteractive)
 
 			if cfg.interactive {
@@ -236,18 +261,20 @@ func main() {
 	flags.StringP(keyPassword, "p", "", "JumpCloud user password")
 	flags.StringP(keyMFA, "m", "", "JumpCloud MFA token or secret")
 	flags.String(keyIdpURL, "", "JumpCloud IDP URL")
-	flags.String(keyRoleName, "", "AWS Role name (from config)")
-	flags.String(keyRoleARN, "", "AWS Role ARN")
-	flags.String(keyPrincipalARN, "", "AWS Identity provider ARN")
-	flags.StringP(keyRegion, "r", "", "AWS region")
-	flags.IntP(keyDuration, "d", defaultDuration, "AWS credential expiration time in seconds")
+	flags.String(keyRoleName, "", "Role name (from config)")
+	flags.String(keyRoleARN, "", "Role ARN")
+	flags.String(keyPrincipalARN, "", "SAML identity provider ARN (AWS principal ARN / Alibaba SAML provider ARN)")
+	flags.StringP(keyRegion, "r", "", "Cloud region")
+	flags.IntP(keyDuration, "d", defaultDuration, "Credential expiration time in seconds")
 	flags.StringP(keyAccount, "a", "", "Account name from config")
 	flags.StringP(keyOutputFormat, "f", "cli", "Credential output format (cli, env, cli-stdout, env-stdout, shell)")
-	flags.String(keyAwsCliProfile, "", "AWS CLI profile name")
+	flags.String(keyProvider, "", "Cloud provider (aws, alibaba)")
+	flags.String(keyCLIProfile, "", "Cloud CLI profile name")
+	flags.String(keyAwsCliProfile, "", "Deprecated: use --cli-profile-name")
 
 	// -s / --shell is a convenience alias for --output-format=shell (backward compat).
-	flags.BoolP(keyShell, "s", false, "Launch a shell with AWS credentials (alias for -f shell)")
-	flags.String(keyShellScript, "", "Path to shell script to run with AWS credentials (implies -s)")
+	flags.BoolP(keyShell, "s", false, "Launch a shell with cloud credentials (alias for -f shell)")
+	flags.String(keyShellScript, "", "Path to shell script to run with cloud credentials (implies -s)")
 	flags.BoolP(keyInteractive, "i", false, "Launch interactive TUI wizard")
 	flags.BoolVar(&cfg.update, "update", false, "Download and install the latest release")
 	flags.Bool(keyNoUpdateCheck, false, "Disable automatic update check")
@@ -255,6 +282,13 @@ func main() {
 	// Bind all flags to Viper
 	if err := viper.BindPFlags(flags); err != nil {
 		fmt.Fprintf(os.Stderr, "Error: failed to bind flags: %v\n", err)
+		os.Exit(1)
+	}
+
+	// Hide the deprecated flag from help only after binding, so the binding
+	// itself still registers.
+	if err := flags.MarkDeprecated(keyAwsCliProfile, "use --cli-profile-name"); err != nil {
+		fmt.Fprintf(os.Stderr, "Error: failed to deprecate flag %s: %v\n", keyAwsCliProfile, err)
 		os.Exit(1)
 	}
 
@@ -294,14 +328,14 @@ func runInteractive(cfg *appConfig) error {
 
 	format := fm.resolveOutputFormat()
 	profileName := cmp.Or(
-		resolveString(keyAwsCliProfile, fm.account),
-		fm.values[stepAwsCliProfile],
+		resolveString(keyCLIProfile, fm.account),
+		fm.values[stepCLIProfile],
 	)
 
 	// Stdout formats: the credentials themselves are the output and already make
 	// success obvious, so no extra summary is printed.
 	if format == "cli-stdout" || format == "env-stdout" {
-		return outputCredentials(*fm.credResult, format, profileName)
+		return outputCredentials(fm.provider, *fm.credResult, format, profileName)
 	}
 
 	summary := fm.accountInfoText()
@@ -309,7 +343,7 @@ func runInteractive(cfg *appConfig) error {
 	// Shell: summary to stderr (stdout belongs to the subshell), then launch.
 	if format == "shell" {
 		fmt.Fprint(os.Stderr, summary)
-		return launchShell(*fm.credResult, cfg.shellScript)
+		return launchShell(fm.provider, *fm.credResult, cfg.shellScript)
 	}
 
 	// File-based formats (cli, env): files were already written inside the TUI.
@@ -336,6 +370,13 @@ func runHeadless(cfg *appConfig) error {
 		acc = &found
 	}
 
+	// Resolve the provider before anything else so an unknown --provider fails
+	// immediately, rather than after a full authentication round-trip.
+	prov, err := resolveProvider(acc)
+	if err != nil {
+		return err
+	}
+
 	// Resolve all values (Viper flags/env take priority, then account defaults)
 	email := resolveString(keyEmail, acc)
 	password := resolveString(keyPassword, acc)
@@ -345,7 +386,7 @@ func runHeadless(cfg *appConfig) error {
 	roleARN := resolveString(keyRoleARN, acc)
 	region := resolveString(keyRegion, acc)
 	duration := resolveDuration(acc)
-	awsCliProfile := resolveString(keyAwsCliProfile, acc)
+	cliProfile := resolveString(keyCLIProfile, acc)
 
 	// Resolve --role-name to ARN if needed
 	if roleARN == "" {
@@ -383,24 +424,35 @@ func runHeadless(cfg *appConfig) error {
 	// Validate output format and region up front, before spending a full
 	// authentication round-trip.
 	format := viper.GetString(keyOutputFormat)
-	if err := validators.Get("output-format")(format); err != nil {
+	if err := validators.Get(validators.KeyOutputFormat)(format); err != nil {
 		return err
 	}
-	if err := validators.Get("region")(region); err != nil {
-		// The built-in region list can lag behind AWS; warn instead of blocking.
-		fmt.Fprintf(os.Stderr, "Warning: region %q is not in the known region list; proceeding anyway\n", region)
+	if err := validators.ProviderAware(validators.KeyRegion, prov)(region); err != nil {
+		// The built-in region list can lag behind the provider; warn instead of blocking.
+		fmt.Fprintf(os.Stderr, "Warning: region %q is not in the known %s region list; proceeding anyway\n",
+			region, prov.Info().DisplayName)
 	}
 
 	// Fetch credentials
-	cred, err := getCredentials(context.Background(), email, password, idpURL, mfaToken, principalARN, roleARN, region, duration)
+	cred, err := getCredentials(context.Background(), credentialRequest{
+		Provider:     prov,
+		Email:        email,
+		Password:     password,
+		IdpURL:       idpURL,
+		MFA:          mfaToken,
+		PrincipalARN: principalARN,
+		RoleARN:      roleARN,
+		Region:       region,
+		Duration:     duration,
+	})
 	if err != nil {
 		return fmt.Errorf("credential error: %w", err)
 	}
 
 	// Handle output
 	if format == "shell" {
-		return launchShell(cred, cfg.shellScript)
+		return launchShell(prov, cred, cfg.shellScript)
 	}
 
-	return outputCredentials(cred, format, awsCliProfile)
+	return outputCredentials(prov, cred, format, cliProfile)
 }

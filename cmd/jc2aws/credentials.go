@@ -11,14 +11,9 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/yousysadmin/jc2aws/internal/aws"
+	"github.com/yousysadmin/jc2aws/internal/cloud"
 	"github.com/yousysadmin/jc2aws/internal/jumpcloud"
 	"github.com/yousysadmin/jc2aws/internal/totp"
-)
-
-const (
-	minSessionDuration = 900
-	maxSessionDuration = 43200
 )
 
 // isOTPCode reports whether the value looks like a one-time code (exactly 6 ASCII digits).
@@ -34,46 +29,79 @@ func isOTPCode(s string) bool {
 	return true
 }
 
-// getCredentials authenticates via JumpCloud and retrieves temporary AWS credentials.
-func getCredentials(ctx context.Context, email, password, idpURL, mfa, principalARN, roleARN, region string, duration int) (aws.AwsSamlOutput, error) {
-	email = strings.TrimSpace(email)
-	mfa = strings.TrimSpace(mfa)
-	principalARN = strings.TrimSpace(principalARN)
-	roleARN = strings.TrimSpace(roleARN)
-	region = strings.TrimSpace(region)
+// credentialRequest holds everything getCredentials needs. A struct keeps the
+// call sites readable and removes the risk of transposing the several
+// same-typed string parameters.
+type credentialRequest struct {
+	Provider     cloud.Provider
+	Email        string
+	Password     string
+	IdpURL       string
+	MFA          string
+	PrincipalARN string
+	RoleARN      string
+	Region       string
+	Duration     int
+}
 
-	if duration < minSessionDuration || duration > maxSessionDuration {
-		return aws.AwsSamlOutput{}, fmt.Errorf("session duration %d is out of the allowed range %d-%d seconds",
-			duration, minSessionDuration, maxSessionDuration)
+// getCredentials authenticates via JumpCloud and exchanges the resulting SAML
+// assertion for temporary credentials from the selected cloud provider.
+func getCredentials(ctx context.Context, req credentialRequest) (cloud.Credentials, error) {
+	// getCredentials runs inside a bubbletea command goroutine, where a nil
+	// dereference would kill the program with the alt-screen still active.
+	if req.Provider == nil {
+		return cloud.Credentials{}, errors.New("no cloud provider selected")
+	}
+
+	email := strings.TrimSpace(req.Email)
+	mfa := strings.TrimSpace(req.MFA)
+	principalARN := strings.TrimSpace(req.PrincipalARN)
+	roleARN := strings.TrimSpace(req.RoleARN)
+	region := strings.TrimSpace(req.Region)
+
+	minDuration, maxDuration := req.Provider.SessionDurationRange()
+	if req.Duration < minDuration || req.Duration > maxDuration {
+		return cloud.Credentials{}, fmt.Errorf("session duration %d is out of the allowed range %d-%d seconds for %s",
+			req.Duration, minDuration, maxDuration, req.Provider.Info().DisplayName)
+	}
+
+	// Validate the ARNs before authenticating: the provider rejects a malformed
+	// ARN anyway, and finding out after a full JumpCloud round-trip (which may
+	// have consumed a one-time MFA code) is needlessly expensive.
+	if err := req.Provider.ValidateProviderARN(principalARN); err != nil {
+		return cloud.Credentials{}, err
+	}
+	if err := req.Provider.ValidateRoleARN(roleARN); err != nil {
+		return cloud.Credentials{}, err
 	}
 
 	// A value of exactly 6 digits is a one-time code; anything else is a TOTP secret.
 	if mfa != "" && !isOTPCode(mfa) {
 		token, err := totp.GetToken(mfa)
 		if err != nil {
-			return aws.AwsSamlOutput{}, fmt.Errorf("failed to derive TOTP code from MFA secret: %w", err)
+			return cloud.Credentials{}, fmt.Errorf("failed to derive TOTP code from MFA secret: %w", err)
 		}
 		mfa = token
 	}
 
-	jc, err := jumpcloud.New(email, password, idpURL, mfa)
+	jc, err := jumpcloud.New(email, req.Password, req.IdpURL, mfa)
 	if err != nil {
-		return aws.AwsSamlOutput{}, err
+		return cloud.Credentials{}, err
 	}
 	saml, err := jc.GetSaml(ctx)
 	if err != nil {
-		return aws.AwsSamlOutput{}, err
+		return cloud.Credentials{}, err
 	}
 
-	cred, err := aws.GetCredentials(ctx, aws.AwsSamlInput{
-		PrincipalArn:    principalARN,
-		RoleArn:         roleARN,
+	cred, err := req.Provider.AssumeRoleWithSAML(ctx, cloud.SAMLInput{
+		ProviderARN:     principalARN,
+		RoleARN:         roleARN,
 		SAMLAssertion:   saml,
-		DurationSeconds: int32(duration),
+		DurationSeconds: int32(req.Duration),
 		Region:          region,
 	})
 	if err != nil {
-		return aws.AwsSamlOutput{}, err
+		return cloud.Credentials{}, err
 	}
 	return cred, nil
 }
@@ -106,8 +134,13 @@ func writeSecretFile(path string, data []byte) error {
 	return nil
 }
 
-// outputCredentials writes credentials in the selected format.
-func outputCredentials(cred aws.AwsSamlOutput, format, profileName string) error {
+// outputCredentials writes credentials in the selected format, using the
+// provider's own rendering for the vendor CLI formats.
+func outputCredentials(p cloud.Provider, cred cloud.Credentials, format, profileName string) error {
+	if p == nil {
+		return errors.New("no cloud provider selected")
+	}
+
 	homeDir, err := os.UserHomeDir()
 	if err != nil {
 		return fmt.Errorf("failed to determine home directory: %w", err)
@@ -115,46 +148,39 @@ func outputCredentials(cred aws.AwsSamlOutput, format, profileName string) error
 
 	switch format {
 	case "cli":
-		awsDir := filepath.Join(homeDir, ".aws")
-		if err := os.MkdirAll(awsDir, 0700); err != nil {
-			return fmt.Errorf("failed to create directory %s: %w", awsDir, err)
-		}
-
-		filePathCreds := filepath.Join(awsDir, "credentials")
-		creds, err := cred.ToAwsCredentials(profileName, filePathCreds)
+		// Every file is rendered before any is written, so a rendering failure
+		// cannot leave a half-updated set of profiles behind.
+		files, err := p.CLIFiles(homeDir, profileName, cred)
 		if err != nil {
-			return fmt.Errorf("failed to prepare AWS credentials: %w", err)
+			return fmt.Errorf("failed to prepare %s CLI files: %w", p.Info().DisplayName, err)
 		}
-		if err := writeSecretFile(filePathCreds, creds); err != nil {
-			return fmt.Errorf("failed to write AWS credentials: %w", err)
-		}
-
-		filePathConf := filepath.Join(awsDir, "config")
-		conf, err := cred.ToAwsConfig(profileName, filePathConf)
-		if err != nil {
-			return fmt.Errorf("failed to prepare AWS config: %w", err)
-		}
-		if err := writeSecretFile(filePathConf, conf); err != nil {
-			return fmt.Errorf("failed to write AWS config: %w", err)
+		for _, f := range files {
+			dir := filepath.Dir(f.Path)
+			if err := os.MkdirAll(dir, 0700); err != nil {
+				return fmt.Errorf("failed to create directory %s: %w", dir, err)
+			}
+			if err := writeSecretFile(f.Path, f.Data); err != nil {
+				return fmt.Errorf("failed to write %s: %w", f.Path, err)
+			}
 		}
 
 	case "env":
 		filePath := filepath.Join(homeDir, ".jc2aws.env")
-		if err := writeSecretFile(filePath, []byte(cred.PrintEnv())); err != nil {
+		if err := writeSecretFile(filePath, []byte(cloud.EnvString(p, cred))); err != nil {
 			return fmt.Errorf("failed to write env file: %w", err)
 		}
 
 	case "cli-stdout":
-		c, err := cred.ToAwsCredentials(profileName, "")
+		c, err := p.StdoutProfile(profileName, cred)
 		if err != nil {
-			return fmt.Errorf("failed to prepare AWS credentials: %w", err)
+			return fmt.Errorf("failed to prepare %s credentials: %w", p.Info().DisplayName, err)
 		}
 		if _, err := os.Stdout.Write(c); err != nil {
 			return err
 		}
 
 	case "env-stdout":
-		if _, err := io.WriteString(os.Stdout, cred.PrintEnv()); err != nil {
+		if _, err := io.WriteString(os.Stdout, cloud.EnvString(p, cred)); err != nil {
 			return err
 		}
 
@@ -165,9 +191,14 @@ func outputCredentials(cred aws.AwsSamlOutput, format, profileName string) error
 	return nil
 }
 
-// launchShell starts an interactive shell with AWS credential env vars injected.
-func launchShell(cred aws.AwsSamlOutput, scriptName string) error {
-	env := cred.ToEnv()
+// launchShell starts an interactive shell with the provider's credential
+// environment variables injected.
+func launchShell(p cloud.Provider, cred cloud.Credentials, scriptName string) error {
+	if p == nil {
+		return errors.New("no cloud provider selected")
+	}
+
+	env := p.Env(cred)
 	sysEnv := os.Environ()
 	curShell := cmp.Or(os.Getenv("SHELL"), "/bin/sh")
 
