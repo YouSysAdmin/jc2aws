@@ -19,30 +19,37 @@ default_password: "MyVeryCoolPassword"
 # Options: "exit" (default), "menu" (show Run again/Quit menu), "wait" (press any key)
 #tui_done_action: "exit"
 
-# AWS accounts configs
+# Cloud accounts configs
+#
+# Each account names its cloud provider: "aws" (the default when omitted) or
+# "alibaba". The provider-neutral keys below (principal_arn, role_arns, regions,
+# cli_profile) work for both. The older aws_-prefixed spellings are still
+# accepted; see the my-stage account for an example.
 accounts:
   - name: my-prod
     description: "Production account"
-    # Override the AWS CLI profile name (defaults to account name)
-    aws_cli_profile: "prod"
+    # Cloud provider: aws (default) or alibaba
+    provider: aws
+    # Override the cloud CLI profile name (defaults to account name)
+    cli_profile: "prod"
     # JumpCloud user email (overrides default_email for this account)
     email: "my-user@example.com"
     # JumpCloud user password (overrides default_password for this account)
     password: "MyVeryCoolPassword"
     # MFA TOTP secret (overrides default_mfa_token_secret for this account)
     mfa_token_secret: "MyMFASecret"
-    # SAML provider principal ARN
-    aws_principal_arn: "arn:aws:iam::000000000000:saml-provider/jumpcloud"
-    # IAM roles available for this account
-    aws_role_arns:
+    # SAML identity provider ARN
+    principal_arn: "arn:aws:iam::000000000000:saml-provider/jumpcloud"
+    # Roles available for this account
+    role_arns:
       - name: admin
         description: "AWS Role with full access"
         arn: "arn:aws:iam::000000000000:role/jumpcloud-admin"
       - name: read-only
         description: "AWS Role with read-only access"
         arn: "arn:aws:iam::000000000000:role/jumpcloud-readonly"
-    # AWS regions available for this account
-    aws_regions:
+    # Regions available for this account
+    regions:
       - "ca-central-1"
       - "us-east-1"
     # JumpCloud IDP URL
@@ -50,6 +57,8 @@ accounts:
     # STS session duration in seconds (default: 3600)
     session_duration: 43200
 
+  # Backward compatibility: the aws_-prefixed keys still work, and an account
+  # without `provider:` is treated as AWS.
   - name: my-stage
     description: "Staging account"
     aws_principal_arn: "arn:aws:iam::000000000000:saml-provider/jumpcloud"
@@ -65,3 +74,26 @@ accounts:
       - "us-east-1"
     jc_idp_url: https://sso.jumpcloud.com/saml2/my-stage
     session_duration: 43200
+
+  # Alibaba Cloud account.
+  # Note that Alibaba region IDs look like AWS ones but name different places:
+  # eu-central-1 is Frankfurt and us-west-1 is Silicon Valley.
+  - name: my-ali-prod
+    description: "Alibaba Cloud production account"
+    provider: alibaba
+    cli_profile: "ali-prod"
+    # RAM SAML provider ARN
+    principal_arn: "acs:ram::1250000000000000:saml-provider/jumpcloud"
+    # RAM roles available for this account
+    role_arns:
+      - name: admin
+        description: "RAM role with full access"
+        arn: "acs:ram::1250000000000000:role/jumpcloud-admin"
+      - name: read-only
+        description: "RAM role with read-only access"
+        arn: "acs:ram::1250000000000000:role/jumpcloud-readonly"
+    regions:
+      - "eu-central-1"
+      - "cn-hangzhou"
+    jc_idp_url: https://sso.jumpcloud.com/saml2/my-ali-prod
+    session_duration: 3600
