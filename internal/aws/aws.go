@@ -1,17 +1,20 @@
+// Package aws implements cloud.Provider for Amazon Web Services: it exchanges a
+// SAML assertion for temporary STS credentials and renders them in the shapes
+// the AWS CLI expects.
 package aws
 
 import (
-	"bytes"
 	"context"
 	"fmt"
-	"strings"
-	"time"
+	"slices"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/aws/arn"
 	"github.com/aws/aws-sdk-go-v2/credentials"
 	"github.com/aws/aws-sdk-go-v2/service/sts"
 	"github.com/aws/aws-sdk-go-v2/service/sts/types"
-	"gopkg.in/ini.v1"
+
+	"github.com/yousysadmin/jc2aws/internal/cloud"
 )
 
 // RegionsList Available AWS Regions
@@ -25,59 +28,107 @@ var RegionsList = []string{"us-east-1", "us-east-2", "us-west-1", "us-west-2", "
 // DefaultAwsProfileName is used when no profile name is provided.
 const DefaultAwsProfileName = "default"
 
-// AwsSamlOutput struct for storing prepared AWS credentials
-type AwsSamlOutput struct {
-	AccessKeyID     string
-	SecretAccessKey string
-	SessionToken    string
-	Region          string
-	Expiration      *time.Time
-}
+// Session duration bounds accepted by AWS STS, in seconds.
+const (
+	minDurationSeconds = 900
+	maxDurationSeconds = 43200
+)
 
-// AwsSamlInput struct for input parameters for next used with the official AWS lib
-type AwsSamlInput struct {
-	PrincipalArn    string
-	RoleArn         string
-	SAMLAssertion   string
-	Region          string
-	DurationSeconds int32
-}
+// Provider implements cloud.Provider for Amazon Web Services.
+type Provider struct{}
 
-// ToAwsInput converter from standard types to official AWS lib types
-func (i *AwsSamlInput) ToAwsInput() (s sts.AssumeRoleWithSAMLInput, r string) {
-	s = sts.AssumeRoleWithSAMLInput{
-		PrincipalArn:    new(i.PrincipalArn),
-		RoleArn:         new(i.RoleArn),
-		SAMLAssertion:   new(i.SAMLAssertion),
-		DurationSeconds: new(i.DurationSeconds),
+// New returns the AWS cloud provider.
+func New() *Provider { return &Provider{} }
+
+var _ cloud.Provider = (*Provider)(nil)
+
+// Name returns the canonical provider name "aws".
+func (*Provider) Name() string { return cloud.NameAWS }
+
+// Info returns the display metadata used by the CLI help text and the TUI.
+func (*Provider) Info() cloud.Info {
+	return cloud.Info{
+		DisplayName:      "AWS",
+		ProviderARNLabel: "Principal ARN",
+		RoleARNLabel:     "Role ARN",
+		CLIDescription:   "Write to ~/.aws/credentials and ~/.aws/config",
 	}
-	r = i.Region
+}
+
+// Regions returns a copy of the built-in AWS region list.
+func (*Provider) Regions() []string { return slices.Clone(RegionsList) }
+
+// SessionDurationRange returns the inclusive credential lifetime bounds, in
+// seconds, accepted by AWS STS.
+func (*Provider) SessionDurationRange() (int, int) {
+	return minDurationSeconds, maxDurationSeconds
+}
+
+// ValidateRoleARN reports whether s is a syntactically valid IAM role ARN.
+func (*Provider) ValidateRoleARN(s string) error {
+	if _, err := arn.Parse(s); err != nil {
+		return fmt.Errorf("invalid role arn: %w", err)
+	}
+	return nil
+}
+
+// ValidateProviderARN reports whether s is a syntactically valid IAM SAML
+// provider ARN, known in the AWS API as the principal ARN.
+func (*Provider) ValidateProviderARN(s string) error {
+	if _, err := arn.Parse(s); err != nil {
+		return fmt.Errorf("invalid principal arn: %w", err)
+	}
+	return nil
+}
+
+// ValidateRegion reports whether s is one of the known AWS regions.
+func (p *Provider) ValidateRegion(s string) error {
+	if !slices.Contains(RegionsList, s) {
+		return fmt.Errorf("invalid region %q for AWS", s)
+	}
+	return nil
+}
+
+// toSTSInput converts the provider-neutral input into the official AWS SDK
+// request, returning the region separately because the SDK takes it from the
+// client config rather than the request.
+func toSTSInput(in cloud.SAMLInput) (s sts.AssumeRoleWithSAMLInput, r string) {
+	s = sts.AssumeRoleWithSAMLInput{
+		PrincipalArn:    new(in.ProviderARN),
+		RoleArn:         new(in.RoleARN),
+		SAMLAssertion:   new(in.SAMLAssertion),
+		DurationSeconds: new(in.DurationSeconds),
+	}
+	r = in.Region
 
 	return s, r
 }
 
-// ToAwsSamlOutput converter from official AWS lib types to standart
-func ToAwsSamlOutput(credentials *types.Credentials, region string) AwsSamlOutput {
-	if credentials == nil {
-		return AwsSamlOutput{Region: region}
+// toCredentials converts the official AWS SDK credentials into the
+// provider-neutral type. A nil input yields credentials carrying only the
+// region, matching the SDK's own tolerance for an empty response.
+func toCredentials(creds *types.Credentials, region string) cloud.Credentials {
+	if creds == nil {
+		return cloud.Credentials{Provider: cloud.NameAWS, Region: region}
 	}
 
-	out := AwsSamlOutput{
-		AccessKeyID:     aws.ToString(credentials.AccessKeyId),
-		SecretAccessKey: aws.ToString(credentials.SecretAccessKey),
-		SessionToken:    aws.ToString(credentials.SessionToken),
+	out := cloud.Credentials{
+		Provider:        cloud.NameAWS,
+		AccessKeyID:     aws.ToString(creds.AccessKeyId),
+		SecretAccessKey: aws.ToString(creds.SecretAccessKey),
+		SessionToken:    aws.ToString(creds.SessionToken),
 		Region:          region,
 	}
-	if credentials.Expiration != nil {
-		out.Expiration = new(*credentials.Expiration)
+	if creds.Expiration != nil {
+		out.Expiration = new(*creds.Expiration)
 	}
 
 	return out
 }
 
-// GetCredentials get credentials via assume role with SAML
-func GetCredentials(ctx context.Context, input AwsSamlInput) (AwsSamlOutput, error) {
-	awsInput, region := input.ToAwsInput()
+// AssumeRoleWithSAML exchanges a SAML assertion for temporary STS credentials.
+func (*Provider) AssumeRoleWithSAML(ctx context.Context, in cloud.SAMLInput) (cloud.Credentials, error) {
+	awsInput, region := toSTSInput(in)
 
 	cfg := aws.Config{ // just stub for the sdk config
 		Credentials: credentials.NewStaticCredentialsProvider(
@@ -92,84 +143,19 @@ func GetCredentials(ctx context.Context, input AwsSamlInput) (AwsSamlOutput, err
 
 	res, err := client.AssumeRoleWithSAML(ctx, &awsInput)
 	if err != nil {
-		return AwsSamlOutput{}, fmt.Errorf("failed to assume role with SAML: %w", err)
+		return cloud.Credentials{}, fmt.Errorf("failed to assume role with SAML: %w", err)
 	}
 
-	return ToAwsSamlOutput(res.Credentials, region), nil
+	return toCredentials(res.Credentials, region), nil
 }
 
-// ToEnv output AWS credentials as Environment variables
-func (o *AwsSamlOutput) ToEnv() []string {
+// Env returns the AWS credential environment variables as "KEY=value" strings.
+func (*Provider) Env(cred cloud.Credentials) []string {
 	return []string{
-		fmt.Sprintf("AWS_ACCESS_KEY_ID=%s", o.AccessKeyID),
-		fmt.Sprintf("AWS_SECRET_ACCESS_KEY=%s", o.SecretAccessKey),
-		fmt.Sprintf("AWS_SESSION_TOKEN=%s", o.SessionToken),
-		fmt.Sprintf("AWS_REGION=%s", o.Region),
-		fmt.Sprintf("AWS_DEFAULT_REGION=%s", o.Region),
+		fmt.Sprintf("AWS_ACCESS_KEY_ID=%s", cred.AccessKeyID),
+		fmt.Sprintf("AWS_SECRET_ACCESS_KEY=%s", cred.SecretAccessKey),
+		fmt.Sprintf("AWS_SESSION_TOKEN=%s", cred.SessionToken),
+		fmt.Sprintf("AWS_REGION=%s", cred.Region),
+		fmt.Sprintf("AWS_DEFAULT_REGION=%s", cred.Region),
 	}
-}
-
-// PrintEnv prepare environment variables output as text
-func (o *AwsSamlOutput) PrintEnv() string {
-	return strings.Join(o.ToEnv(), "\n") + "\n"
-}
-
-// ToAwsCredentials output as AWS profile
-// If an input file exists, loading existing profiles and rewriting exist profile or adding a new
-func (o *AwsSamlOutput) ToAwsCredentials(profileName string, inputIniFile string) ([]byte, error) {
-	if profileName == "" {
-		profileName = DefaultAwsProfileName
-	}
-
-	profile, err := ini.LooseLoad(inputIniFile)
-	if err != nil {
-		return nil, fmt.Errorf("failed to load %s: %w", inputIniFile, err)
-	}
-
-	section, err := profile.NewSection(profileName)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create profile section %q: %w", profileName, err)
-	}
-	section.Key("aws_access_key_id").SetValue(o.AccessKeyID)
-	section.Key("aws_secret_access_key").SetValue(o.SecretAccessKey)
-	section.Key("aws_session_token").SetValue(o.SessionToken)
-	if o.Expiration != nil {
-		section.Key("expiration").SetValue(o.Expiration.Format(time.RFC3339))
-	}
-
-	var buf bytes.Buffer
-	if _, err := profile.WriteTo(&buf); err != nil {
-		return nil, fmt.Errorf("failed to render credentials file: %w", err)
-	}
-
-	return buf.Bytes(), nil
-}
-
-// ToAwsConfig output as AWS profile
-// If an input file exists, loading existing profiles and rewriting exist profile or adding a new
-func (o *AwsSamlOutput) ToAwsConfig(profileName string, inputIniFile string) ([]byte, error) {
-	if profileName == "" {
-		profileName = DefaultAwsProfileName
-	}
-	if profileName != DefaultAwsProfileName {
-		profileName = "profile " + profileName
-	}
-
-	profile, err := ini.LooseLoad(inputIniFile)
-	if err != nil {
-		return nil, fmt.Errorf("failed to load %s: %w", inputIniFile, err)
-	}
-
-	section, err := profile.NewSection(profileName)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create profile section %q: %w", profileName, err)
-	}
-	section.Key("region").SetValue(o.Region)
-
-	var buf bytes.Buffer
-	if _, err := profile.WriteTo(&buf); err != nil {
-		return nil, fmt.Errorf("failed to render config file: %w", err)
-	}
-
-	return buf.Bytes(), nil
 }
